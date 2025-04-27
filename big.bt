@@ -1,0 +1,1078 @@
+//------------------------------------------------
+//--- 010 Editor v15.0.2 Binary Template
+//
+//      File: big.bt
+//   Authors: Corey Nguyen (mariokart64)
+//   Version: v1.0
+//   Purpose: Parse .big model file Dead Rising 3
+//  Category: game
+// File Mask: *.big; *.mdl
+//  ID Bytes: 03 04 05 06
+//   History:  
+//   1.0   2024-04-27 Corey Nguyen: Initial release.
+//------------------------------------------------
+
+
+LittleEndian();          // <-- all fields are LE
+
+// Hex-based DXGI_FORMAT enum for your CVertexReaders map
+enum <UINT> DXGI_FORMAT {
+    DXGI_FORMAT_UNKNOWN                      = 0x00,
+    DXGI_FORMAT_R32G32B32A32_TYPELESS        = 0x01,
+    DXGI_FORMAT_R32G32B32A32_FLOAT           = 0x02,
+    DXGI_FORMAT_R32G32B32A32_UINT            = 0x03,
+    DXGI_FORMAT_R32G32B32A32_SINT            = 0x04,
+
+    DXGI_FORMAT_R32G32B32_TYPELESS           = 0x05,
+    DXGI_FORMAT_R32G32B32_FLOAT              = 0x06,
+    DXGI_FORMAT_R32G32B32_UINT               = 0x07,
+    DXGI_FORMAT_R32G32B32_SINT               = 0x08,
+
+    DXGI_FORMAT_R16G16B16A16_TYPELESS        = 0x09,
+    DXGI_FORMAT_R16G16B16A16_FLOAT           = 0x0A,
+    DXGI_FORMAT_R16G16B16A16_UNORM           = 0x0B,
+    DXGI_FORMAT_R16G16B16A16_UINT            = 0x0C,
+    DXGI_FORMAT_R16G16B16A16_SNORM           = 0x0D,
+    DXGI_FORMAT_R16G16B16A16_SINT            = 0x0E,
+
+    DXGI_FORMAT_R32G32_TYPELESS              = 0x0F,
+    DXGI_FORMAT_R32G32_FLOAT                 = 0x10,
+    DXGI_FORMAT_R32G32_UINT                  = 0x11,
+    DXGI_FORMAT_R32G32_SINT                  = 0x12,
+
+    DXGI_FORMAT_R10G10B10A2_TYPELESS         = 0x17,
+    DXGI_FORMAT_R10G10B10A2_UNORM            = 0x18,
+    DXGI_FORMAT_R10G10B10A2_UINT             = 0x19,
+    DXGI_FORMAT_R11G11B10_FLOAT              = 0x1A,
+
+    DXGI_FORMAT_R8G8B8A8_TYPELESS            = 0x1B,
+    DXGI_FORMAT_R8G8B8A8_UNORM               = 0x1C,
+    DXGI_FORMAT_R8G8B8A8_UINT                = 0x1E,
+    DXGI_FORMAT_R8G8B8A8_SNORM               = 0x1F,
+    DXGI_FORMAT_R8G8B8A8_SINT                = 0x20,
+
+    DXGI_FORMAT_R16G16_TYPELESS              = 0x21,
+    DXGI_FORMAT_R16G16_FLOAT                 = 0x22,
+    DXGI_FORMAT_R16G16_UNORM                 = 0x23,
+    DXGI_FORMAT_R16G16_UINT                  = 0x24,
+    DXGI_FORMAT_R16G16_SNORM                 = 0x25,
+    DXGI_FORMAT_R16G16_SINT                  = 0x26,
+
+    DXGI_FORMAT_R32_TYPELESS                 = 0x27,
+    DXGI_FORMAT_R32_FLOAT                    = 0x29,
+    DXGI_FORMAT_R32_UINT                     = 0x2A,
+    DXGI_FORMAT_R32_SINT                     = 0x2B,
+
+    DXGI_FORMAT_R8G8_TYPELESS                = 0x30,
+    DXGI_FORMAT_R8G8_UNORM                   = 0x31,
+    DXGI_FORMAT_R8G8_UINT                    = 0x32,
+    DXGI_FORMAT_R8G8_SNORM                   = 0x33,
+    DXGI_FORMAT_R8G8_SINT                    = 0x34,
+
+    DXGI_FORMAT_R16_TYPELESS                 = 0x35,
+    DXGI_FORMAT_R16_FLOAT                    = 0x36,
+    DXGI_FORMAT_R16_UNORM                    = 0x38,
+    DXGI_FORMAT_R16_UINT                     = 0x39,
+    DXGI_FORMAT_R16_SNORM                    = 0x3A,
+    DXGI_FORMAT_R16_SINT                     = 0x3B,
+
+    DXGI_FORMAT_R8_TYPELESS                  = 0x3C,
+    DXGI_FORMAT_R8_UNORM                     = 0x3D,
+    DXGI_FORMAT_R8_UINT                      = 0x3E,
+    DXGI_FORMAT_R8_SNORM                     = 0x3F,
+    DXGI_FORMAT_R8_SINT                      = 0x40,
+
+    DXGI_FORMAT_B8G8R8A8_TYPELESS            = 0x5A,
+    DXGI_FORMAT_B8G8R8A8_UNORM               = 0x57,
+    DXGI_FORMAT_B8G8R8X8_UNORM               = 0x58,
+    DXGI_FORMAT_B4G4R4A4_UNORM               = 0x73
+    };
+
+enum <UINT> SlotType_t {
+    IC_PerVertex = 0,   // advance the element once per vertex
+    IC_PerInstance,     // advance once per instance
+    };
+
+enum<UCHAR> PrimType_t {
+	PT_PointList = 0,
+	PT_LineList,
+	PT_LineStrip,
+	PT_TriangleList,
+	PT_TriangleStrip,
+	PT_TriangleList2,
+    };
+
+enum<UINT> VtxType_t {
+	IS_Position = 0, //0
+	IS_BlendWeight, //1
+	IS_BlendIndices, //2
+	IS_Normal, //3
+	IS_PSize, //4
+	IS_TexCoord, //5
+	IS_Tangent, //6
+	IS_Binormal, //7
+	IS_TessFactor, //8
+	IS_PositionT, //9
+	IS_Color, //10 - A
+	IS_Fog, //11 - B
+	IS_Depth, //12 - C
+	IS_Sample, //13 - D
+    };
+
+enum<UCHAR> CmdType_t {
+    CMD_UNDEFINED                               = 0x00,
+    CMD_RET                                     = 0x01,
+    CMD_CALL                                    = 0x02,
+    CMD_CALL_FAR                                = 0x03,
+    CMD_REF                                     = 0x04,
+    CMD_REF_FAR                                 = 0x05,
+    CMD_CLEAR                                   = 0x06,
+    CMD_DRAW                                    = 0x07,
+    CMD_DRAW_INDEXED                            = 0x08,
+    SET_VERTEX_DECL                             = 0x09,
+    SET_VERTEX_BUFFER                           = 0x0A,
+    SET_INDEX_BUFFER                            = 0x0B,
+    SET_TEXTURE                                 = 0x0C,
+    SET_TEXTURE_STATE                           = 0x0D,
+    SET_DRAW_STATE                              = 0x0E,
+    UNUSED_WAS_PARTICLE_DATA                    = 0x0F,
+    FILL_DYNAMIC_VERTEX_BUFFER                  = 0x10,
+    SET_CONST_COLOR                             = 0x11,
+    SET_CONST_ALPHA                             = 0x12,
+    SET_NUM_INSTANCES                           = 0x13,
+    SET_STREAM_FREQ                             = 0x14,
+    SET_DEPTH_BIAS                              = 0x15,
+    SET_SHADER_CONSTANT_STACK_NODE              = 0x16,
+    SET_IMMEDIATE_BOUND_CONSTANT_SET_HANDLE     = 0x17,
+    SET_VS_CONST                                = 0x18,
+    SET_PS_CONST                                = 0x19,
+    SET_CB_CONST                                = 0x1A,
+    SET_PS_CONST_IMM                            = 0x1B,
+    OVERRIDE_DRAW_STATE                         = 0x1C,
+    SET_NAMED_EVENT                             = 0x1D,
+    SET_USER_CLIP_PLANES_ENABLED                = 0x1E,
+    SET_DIFFUSE                                 = 0x1F,
+    SET_SPEC_VARS                               = 0x20,
+    SET_ENV_REFLECTIVITY                        = 0x21,
+    CMD_NOOP0                                   = 0x22,
+    CMD_NOOP2                                   = 0x23,
+    OVERRIDE_TEXTURE                            = 0x24,
+    SET_OFFSET_VERTEX_BUFFER                    = 0x25,
+    SET_PARALLAX_PARAMS                         = 0x26,
+    SET_SHADER_CONSTANT_SETTING                 = 0x27,
+    SET_PROJ_VIEW                               = 0x28,
+    APPLY_BULKRENDER_SHADER_RUNTIME_PASS        = 0x29,
+    CMD_SET_STENCIL                             = 0x2A,
+    SET_SHADER                                  = 0x2B,
+    SET_USER_CLIP_PLANE                         = 0x2C,
+    SET_CAM_SIDE_VECTOR                         = 0x2D,
+    SET_LIGHT_TINT                              = 0x2E,
+    SET_WORLD_TRANSFORM                         = 0x2F,
+    SET_DYNAMIC_TEXTURE                         = 0x30,
+    SET_DYNAMIC_TEXTURE_STACK_NODE              = 0x31,
+    SET_BOUND_CONSTANT_SET_HANDLE               = 0x32,
+    SET_NUM_POINT_LIGHTS                        = 0x33,
+    SET_SHADER_CONTEXT                          = 0x34,
+    SET_SHADER_RUNTIME_PASS                     = 0x35,
+    SET_MIRROR_TEXTURE                          = 0x36,
+    OVERRIDE_VB_OFFSET                          = 0x37,
+    SET_BULKRENDER_SHADER_RUNTIME_PASS          = 0x38,
+    SET_SHADER_RUNTIME_Z_PASS_INDEX             = 0x39,
+    ADD_TO_DYNAMIC_VERTEX_BUFFER                = 0x3A,
+    FILL_DYNAMIC_INDEX_BUFFER                   = 0x3B,
+    COPY_DYNAMIC_VERTEX_BUFFER                  = 0x3C,
+    START_BULK_RENDERING                        = 0x3D,
+    SET_BULK_CSM_PASS_ID                        = 0x3E,
+    OVERRIDE_DRAW_BULK_INSTANCES                = 0x3F,
+    SET_DYNAMIC_VERTEX_BUFFER                   = 0x40,
+    SET_OFFSET_INDEX_BUFFER                     = 0x41,
+    SET_CB_HANDLE                               = 0x42,
+    SET_SEPARATE_ALPHA_BLEND_STATE              = 0x43,
+    SET_IMMEDIATE_DYNAMIC_TEXTURE_HANDLE        = 0x44,
+    SET_IMMEDIATE_DYNAMIC_TEXTURE               = 0x45,
+    OVERRIDE_CULL_MODE                          = 0x46,
+    CMD_DRAW_INSTANCED                          = 0x47,
+    SET_PREDICATION                             = 0x48,
+    SET_Z_PREDICATION                           = 0x49,
+    SET_RENDER_PREDICATION                      = 0x4A,
+    SET_INSTANCE_PARAMS                         = 0x4B,
+    SET_VERTEX_TEXTURE                          = 0x4C,
+    SET_VERTEX_TEXTURE_STATE                    = 0x4D,
+    SET_CPU_SKINNING_POSITIONS_VB               = 0x4E,
+    SET_CPU_SKINNING_NORMALS_VB                 = 0x4F,
+    SET_CPU_SKINNING_WEIGHTS_VB                 = 0x50,
+    SET_STREAM_DIV_OP                           = 0x51,
+    SET_INSTANCE_FREQUENCY                      = 0x52,
+    CMD_DRAW_INSTANCED_NONINDEXED               = 0x53,
+    SET_VB_OFFSET                               = 0x54,
+    START_DRAWING_CPU_SKINNED_ZOMBIES           = 0x55,
+    SUBMIT_CPU_SKINNED_ZOMBIES                  = 0x56,
+    SET_SKINNING_MATRICES                       = 0x57,
+    SET_GPU_ROOT_MATRIX                         = 0x58,
+    CMD_WAIT_LABEL                              = 0x59,
+    CMD_OCCLUSION_QUERY                         = 0x5A,
+    CMD_CALL_HWCMDBUF                           = 0x5B,
+    CMD_REF_FAR_COND_OVERRIDE                   = 0x5C,
+    SET_CALLBACK_ARRAY                          = 0x5D,
+    CALL_CALLBACK                               = 0x5E,
+    CMD_START_STRIP                             = 0x5F,
+    SET_VERTEX_DECL_EX                          = 0x60,
+    CMD_CLEAR_VDE_FLAG                          = 0x61,
+    CMD_UPDATE_VDE_FLAG                         = 0x62,
+    CMD_CLEAR_TEXTURE_SWITCH                    = 0x63,
+    SET_DEPTH_BOUNDS_STATE                      = 0x64,
+    CMD_RENDER_IMMEDIATE                        = 0x65,
+    SET_CB_PTRS                                 = 0x66,
+    OVERRIDE_TEX_OPT                            = 0x67,
+    CMD_SET_CS_INPUT                            = 0x68,
+    CMD_SET_CS_OUTPUT                           = 0x69,
+    CMD_DISPATCH                                = 0x6A,
+    CMD_COPY_RESOURCE                           = 0x6B,
+    SET_MATERIAL                                = 0x6C,
+    CMD_SET_MATERIAL                            = 0x6D,
+    UPDATE_DYNAMIC_VERTEX_BUFFER                = 0x6E,
+    CMD_COPY_STRUCTURE_COUNT                    = 0x6F,
+    CMD_ADD_GPU_SYNC                            = 0x70,
+    CMD_CS_TASK_START                           = 0x71,
+    CMD_CS_TASK_END                             = 0x72,
+    SET_TEXTURE_UNRESOLVED                      = 0x73,
+    SET_TEXTURE_STATE_UNRESOLVED                = 0x74,
+    SET_TEXTURE2                                = 0x75,
+    SET_TEXTURE_STATE2                          = 0x76,
+    SET_STRUCTURED_BUFFER_VS                    = 0x77,
+    CMD_CLEAR_UAV_FLOAT                         = 0x78,
+    CMD_CLEAR_UAV_UINT                          = 0x79,
+    SET_MERGED_INDEX_BUFFER                     = 0x7A,
+    SET_MERGED_VERTEX_DECL                      = 0x7B,
+    CMD_DISPATCH_WITH_NUM_THREADS               = 0x7C,
+    CMD_COMMIT_CB                               = 0x7D,
+    CMD_DRAW_INDEXED_INSTANCED                  = 0x7E,
+    CMD_GPU_WAIT_UNTIL_IDLE                     = 0x7F,
+    CMD_NOP                                     = 0xFF
+    };
+
+
+int genHash( char str[] ) {
+    local int hash = 0;
+    local int i, len = Strlen(str);
+    local int c = 0;
+    for( i = 0; i < len; i++ ) {
+        c = ToLower(str[i]);
+        hash = c + (hash << 6) + (hash << 16) - hash;
+        }
+    return hash;
+    }
+
+struct dr3String_t {
+    string name;
+    };
+
+struct dr3MdlBoundingBox_t {           // 24 B
+    float   min[3];
+    float   max[3];
+    };
+
+struct dr3MdlAttribute_t {              // 4 B (single uint flag)
+    uint    value;
+    };
+
+struct drAnimLibSkeletonEntry_t {        // 36 B
+    float  quat16[4];          // possible 16-bit quaternion
+    float   pos[3];
+    uint    unk008;
+    uint    unk009;
+    };
+
+struct drAnimLibSkeletonName_t {
+    string name;
+    };
+
+struct drAnimLibSkeleton_t {
+    uint    unk000;
+    uint    unk001;             // == count
+    uint    unk002;
+    uint    unk003;
+
+    drAnimLibSkeletonEntry_t entry[unk001];
+    byte   indices[unk001];    // unk009
+
+    drAnimLibSkeletonName_t names[unk001] <optimize=false>;
+    };
+
+struct dr3MdlSceneHeader_t {             // 20 B
+    uint    unk130;
+    uint    unk131;
+    uint    unk132 <format=hex, comment="hash?">;
+    uint    numSceneDesc;       // unk133
+    uint    numVertexDesc;      // unk134
+    };
+
+struct dr3MdlTextureNames_t {
+    ushort  numNames;           // unk140
+    ushort  offsets[numNames];  // relative to start of this struct
+    dr3String_t  names[numNames] <optimize=false>;
+    };
+
+struct dr3MdlMatParameterArrayEntry_t {  // 20 B
+    float  unk100;          // 00
+    float  unk101;          // 04
+    float  unk102;          // 08
+    float  unk103;          // 0C
+    float  unk104;          // 10
+    };
+
+struct dr3MdlMatParameterArray_t( int count ) {
+    dr3MdlMatParameterArrayEntry_t entry[count];
+    };
+
+struct dr3MdlMatSamplerInfoArrayEntry_t {  // 40 B total
+    uint  unk110;           // 00
+    uint  unk111;           // 04
+    uint  unk112;           // 08
+    uint  unk113;           // 0C
+    uint  unk114;           // 10
+    uint  unk115;           // 14
+    float unk116;           // 18
+    float unk117;           // 1C
+    float unk118;           // 20
+    float unk119;           // 24
+    };
+
+struct dr3MdlMatSamplerInfoArray_t ( int count ) {
+    dr3MdlMatSamplerInfoArrayEntry_t entry[count];
+    };
+
+struct dr3MdlMatTextureInfoArrayEntry_t {  // 16 B total
+    uint  unk120;      // 00
+    uint  unk121;      // 04
+    uint  unk122;      // 08
+    uint  unk123;      // 0C
+    };
+
+struct dr3MdlMatTextureInfoArray_t( int count ) {
+    dr3MdlMatTextureInfoArrayEntry_t entry[count];
+    };
+
+struct dr3MdlMatArrayEntry_t { // 80 bytes total
+    uint  unk080;                     // 00
+    uint  hash       <format=hex>;    // 04  (unk081)
+    uint  unk082;                     // 08
+    uint  unk083;                     // 0C
+    uint  unk084;                     // 10
+    uint  unk085;                     // 14
+    uint  unk086;                     // 18
+    uint  unk087;                     // 1C
+    uint  unk088;                     // 20
+    uint  unk089;                     // 24
+    uint  unk090;                     // 28
+    uint  unk091;                     // 2C
+    uint  unk092;                     // 30
+    uint  unk093;                     // 34
+    uint  unk094;                     // 38
+    uint  unk095;                     // 3C
+    uint  unk096;                     // 40
+    uint  unk097;                     // 44
+    uint  unk098;                     // 48
+    uint  unk099;                     // 4C
+    };
+
+struct dr3MdlMatArray_t( int count ) {
+    dr3MdlMatArrayEntry_t entry[count];
+                                          // total size = count * 80
+    };
+
+struct dr3MdlBufferHeaderEntry_t {      // 24 B
+    uint    name_hash;           // ¡°Combined Vertices 44¡± etc.
+    uint    unk061;
+    int     unk062;
+    uint    count;
+    uint    stride;
+    uint    unk065;
+    };
+
+struct dr3MdlD3DVertexDescEntry_t {
+    VtxType_t      component;     // e.g. 0x06=point3, 0x1E=point4
+    uint      map_index;     // usage-dependent
+    DXGI_FORMAT      datatype;      // 0=position,1=weight,2=boneid,3=normal,¡­
+    uint      buffer_index;  // index into vertex buffers
+    uint position;      // per-vertex byte offset
+    uint unkown;      // per-vertex byte offset
+    uint      channel;       // stream/channel index
+    };
+
+struct dr3MdlD3DVertexDesc_t( int count ) {
+    dr3MdlD3DVertexDescEntry_t entry[count];
+    };
+
+struct dr3MdlCommandBufferEntry_t {
+	CmdType_t opcode;
+	ubyte   cmd[3];
+	
+	switch (opcode) {
+		case 0x03: {  // CMD_CALL_FAR
+			uint CMD_CALL_FAR_0;
+			uint CMD_CALL_FAR_1;
+			} break;
+	
+		case 0x04: {  // CMD_REF
+			uint CMD_REF_0;
+			} break;
+	
+		case 0x05: {  // CMD_REF_FAR
+			uint CMD_REF_FAR_0;
+			uint CMD_REF_FAR_1;
+			} break;
+	
+		case 0x08: {  // CMD_DRAW_INDEXED
+			uint CMD_DRAW_INDEXED_0;
+			uint CMD_DRAW_INDEXED_1;
+			uint CMD_DRAW_INDEXED_2;
+			uint CMD_DRAW_INDEXED_3;
+			uint CMD_DRAW_INDEXED_4;
+			} break;
+	
+		case 0x0A: {  // SET_VERTEX_BUFFER
+			uint SET_VERTEX_BUFFER_0;
+			uint SET_VERTEX_BUFFER_1;
+			} break;
+	
+		case 0x0B: {  // SET_INDEX_BUFFER
+			uint SET_INDEX_BUFFER_0;
+			} break;
+	
+		case 0x10: {  // FILL_DYNAMIC_VERTEX_BUFFER
+			uint FILL_DYNAMIC_VERTEX_BUFFER_0;
+			uint FILL_DYNAMIC_VERTEX_BUFFER_1;
+			} break;
+	
+		case 0x11: {  // SET_CONST_COLOR
+			uint SET_CONST_COLOR_0;
+			} break;
+	
+		case 0x12: {  // SET_CONST_ALPHA
+			uint SET_CONST_ALPHA_0;
+			} break;
+	
+		case 0x13: {  // SET_NUM_INSTANCES
+			uint SET_NUM_INSTANCES_0;
+			} break;
+	
+		case 0x14: {  // SET_STREAM_FREQ
+			uint SET_STREAM_FREQ_0;
+			} break;
+	
+		case 0x15: {  // SET_DEPTH_BIAS
+			uint SET_DEPTH_BIAS_0;
+			} break;
+	
+		case 0x16: {  // SET_SHADER_CONSTANT_STACK_NODE
+			uint SET_SHADER_CONSTANT_STACK_NODE_0;
+			} break;
+	
+		case 0x17: {  // SET_IMMEDIATE_BOUND_CONSTANT_SET_HANDLE
+			uint SET_IMMEDIATE_BOUND_CONSTANT_SET_HANDLE_0;
+			} break;
+	
+		case 0x18: {  // SET_VS_CONST
+			uint SET_VS_CONST_0;  // index
+			uint SET_VS_CONST_1;  // value
+			} break;
+	
+		case 0x19: {  // SET_PS_CONST
+			uint SET_PS_CONST_0;  // index
+			uint SET_PS_CONST_1;  // value
+			} break;
+	
+		case 0x1A: {  // SET_CB_CONST
+			uint SET_CB_CONST_0;  // buffer index
+			uint SET_CB_CONST_1;  // value
+			} break;
+	
+		case 0x1B: {  // SET_PS_CONST_IMM
+			uint SET_PS_CONST_IMM_0;
+			} break;
+	
+		case 0x1C: {  // OVERRIDE_DRAW_STATE
+			uint OVERRIDE_DRAW_STATE_0;
+			} break;
+	
+		case 0x1D: {  // SET_NAMED_EVENT
+			uint SET_NAMED_EVENT_0;
+			} break;
+	
+		case 0x1E: {  // SET_USER_CLIP_PLANES_ENABLED
+			uint SET_USER_CLIP_PLANES_ENABLED_0;
+			} break;
+	
+		case 0x1F: {  // SET_DIFFUSE
+			uint SET_DIFFUSE_0;
+			} break;
+	
+		case 0x20: {  // SET_SPEC_VARS
+			uint SET_SPEC_VARS_0; // specular power
+			uint SET_SPEC_VARS_1; // specular intensity
+			} break;
+	
+		case 0x21: {  // SET_ENV_REFLECTIVITY
+			uint SET_ENV_REFLECTIVITY_0;
+			} break;
+	
+		case 0x25: {  // SET_OFFSET_VERTEX_BUFFER
+			uint SET_OFFSET_VERTEX_BUFFER_0;
+			} break;
+	
+		case 0x26: {  // SET_PARALLAX_PARAMS
+			uint SET_PARALLAX_PARAMS_0; // scale
+			uint SET_PARALLAX_PARAMS_1; // bias
+			} break;
+	
+		case 0x27: {  // SET_SHADER_CONSTANT_SETTING
+			uint SET_SHADER_CONSTANT_SETTING_0;
+			} break;
+	
+		case 0x28: {  // SET_PROJ_VIEW
+			uint SET_PROJ_VIEW_0;
+			} break;
+	
+		case 0x29: {  // APPLY_BULKRENDER_SHADER_RUNTIME_PASS
+			uint APPLY_BULKRENDER_SHADER_RUNTIME_PASS_0;
+			} break;
+	
+		case 0x2A: {  // CMD_SET_STENCIL
+			uint CMD_SET_STENCIL_0;
+			} break;
+	
+		case 0x2B: {  // SET_SHADER
+			uint SET_SHADER_0;
+			} break;
+	
+		case 0x2C: {  // SET_USER_CLIP_PLANE
+			uint SET_USER_CLIP_PLANE_0; // plane index
+			uint SET_USER_CLIP_PLANE_1; // plane data
+			} break;
+	
+		case 0x2D: {  // SET_CAM_SIDE_VECTOR
+			uint SET_CAM_SIDE_VECTOR_0;
+			} break;
+	
+		case 0x2E: {  // SET_LIGHT_TINT
+			uint SET_LIGHT_TINT_0;
+			} break;
+	
+		case 0x2F: {  // SET_WORLD_TRANSFORM
+			uint SET_WORLD_TRANSFORM_0;
+			} break;
+	
+		case 0x30: {  // SET_DYNAMIC_TEXTURE
+			uint SET_DYNAMIC_TEXTURE_0;
+			} break;
+	
+		case 0x31: {  // SET_DYNAMIC_TEXTURE_STACK_NODE
+			uint SET_DYNAMIC_TEXTURE_STACK_NODE_0;
+			} break;
+	
+		case 0x32: {  // SET_BOUND_CONSTANT_SET_HANDLE
+			uint SET_BOUND_CONSTANT_SET_HANDLE_0;
+			} break;
+	
+		case 0x33: {  // SET_NUM_POINT_LIGHTS
+			uint SET_NUM_POINT_LIGHTS_0;
+			} break;
+	
+		case 0x34: {  // SET_SHADER_CONTEXT
+			uint SET_SHADER_CONTEXT_0;
+			} break;
+	
+		case 0x35: {  // SET_SHADER_RUNTIME_PASS
+			uint SET_SHADER_RUNTIME_PASS_0;
+			} break;
+	
+		case 0x36: {  // SET_MIRROR_TEXTURE
+			uint SET_MIRROR_TEXTURE_0;
+			} break;
+	
+		case 0x37: {  // OVERRIDE_VB_OFFSET
+			uint OVERRIDE_VB_OFFSET_0;
+			} break;
+	
+		case 0x38: {  // SET_BULKRENDER_SHADER_RUNTIME_PASS
+			uint SET_BULKRENDER_SHADER_RUNTIME_PASS_0;
+			} break;
+	
+		case 0x39: {  // SET_SHADER_RUNTIME_Z_PASS_INDEX
+			uint SET_SHADER_RUNTIME_Z_PASS_INDEX_0;
+			} break;
+	
+		case 0x3A: {  // ADD_TO_DYNAMIC_VERTEX_BUFFER
+			uint ADD_TO_DYNAMIC_VERTEX_BUFFER_0;
+			uint ADD_TO_DYNAMIC_VERTEX_BUFFER_1;
+			} break;
+	
+		case 0x3B: {  // FILL_DYNAMIC_INDEX_BUFFER
+			uint FILL_DYNAMIC_INDEX_BUFFER_0;
+			uint FILL_DYNAMIC_INDEX_BUFFER_1;
+			} break;
+	
+		case 0x3C: {  // COPY_DYNAMIC_VERTEX_BUFFER
+			uint COPY_DYNAMIC_VERTEX_BUFFER_0;
+			uint COPY_DYNAMIC_VERTEX_BUFFER_1;
+			} break;
+	
+		case 0x3E: {  // SET_BULK_CSM_PASS_ID
+			uint SET_BULK_CSM_PASS_ID_0;
+			} break;
+	
+		case 0x3F: {  // OVERRIDE_DRAW_BULK_INSTANCES
+			uint OVERRIDE_DRAW_BULK_INSTANCES_0;
+			} break;
+	
+		case 0x40: {  // SET_DYNAMIC_VERTEX_BUFFER
+			uint SET_DYNAMIC_VERTEX_BUFFER_0;
+			uint SET_DYNAMIC_VERTEX_BUFFER_1;
+			} break;
+	
+		case 0x41: {  // SET_OFFSET_INDEX_BUFFER
+			uint SET_OFFSET_INDEX_BUFFER_0;
+			} break;
+	
+		case 0x42: {  // SET_CB_HANDLE
+			uint SET_CB_HANDLE_0;
+			} break;
+	
+		case 0x43: {  // SET_SEPARATE_ALPHA_BLEND_STATE
+			/* No data read */
+			} break;
+	
+		case 0x44: {  // SET_IMMEDIATE_DYNAMIC_TEXTURE_HANDLE
+			uint SET_IMMEDIATE_DYNAMIC_TEXTURE_HANDLE_0;
+			} break;
+	
+		case 0x45: {  // SET_IMMEDIATE_DYNAMIC_TEXTURE
+			uint SET_IMMEDIATE_DYNAMIC_TEXTURE_0;
+			} break;
+	
+		case 0x46: {  // OVERRIDE_CULL_MODE
+			uint OVERRIDE_CULL_MODE_0;
+			} break;
+	
+		case 0x47: {  // CMD_DRAW_INSTANCED
+			uint CMD_DRAW_INSTANCED_0;
+			uint CMD_DRAW_INSTANCED_1;
+			} break;
+	
+		case 0x48: {  // SET_PREDICATION
+			uint SET_PREDICATION_0;
+			} break;
+	
+		case 0x49: {  // SET_Z_PREDICATION
+			uint SET_Z_PREDICATION_0;
+			} break;
+	
+		case 0x4A: {  // SET_RENDER_PREDICATION
+			uint SET_RENDER_PREDICATION_0;
+			} break;
+	
+		case 0x4B: {  // SET_INSTANCE_PARAMS
+			uint SET_INSTANCE_PARAMS_0;
+			uint SET_INSTANCE_PARAMS_1;
+			} break;
+	
+		case 0x4C: {  // SET_VERTEX_TEXTURE
+			uint SET_VERTEX_TEXTURE_0;
+			} break;
+	
+		case 0x4D: {  // SET_VERTEX_TEXTURE_STATE
+			uint SET_VERTEX_TEXTURE_STATE_0;
+			} break;
+	
+		case 0x4E: {  // SET_CPU_SKINNING_POSITIONS_VB
+			uint SET_CPU_SKINNING_POSITIONS_VB_0;
+			} break;
+	
+		case 0x4F: {  // SET_CPU_SKINNING_NORMALS_VB
+			uint SET_CPU_SKINNING_NORMALS_VB_0;
+			} break;
+	
+		case 0x50: {  // SET_CPU_SKINNING_WEIGHTS_VB
+			uint SET_CPU_SKINNING_WEIGHTS_VB_0;
+			} break;
+	
+		case 0x51: {  // SET_STREAM_DIV_OP
+			uint SET_STREAM_DIV_OP_0;
+			} break;
+	
+		case 0x52: {  // SET_INSTANCE_FREQUENCY
+			uint SET_INSTANCE_FREQUENCY_0;
+			} break;
+	
+		case 0x53: {  // CMD_DRAW_INSTANCED_NONINDEXED
+			uint CMD_DRAW_INSTANCED_NONINDEXED_0;
+			uint CMD_DRAW_INSTANCED_NONINDEXED_1;
+			} break;
+	
+		case 0x54: {  // SET_VB_OFFSET
+			uint SET_VB_OFFSET_0;
+			} break;
+	
+		case 0x57: {  // SET_SKINNING_MATRICES
+			uint SET_SKINNING_MATRICES_0;
+			} break;
+	
+		case 0x58: {  // SET_GPU_ROOT_MATRIX
+			uint SET_GPU_ROOT_MATRIX_0;
+			} break;
+	
+		case 0x59: {  // CMD_WAIT_LABEL
+			uint CMD_WAIT_LABEL_0;
+			} break;
+	
+		case 0x5A: {  // CMD_OCCLUSION_QUERY
+			uint CMD_OCCLUSION_QUERY_0;
+			} break;
+	
+		case 0x5B: {  // CMD_CALL_HWCMDBUF
+			uint CMD_CALL_HWCMDBUF_0;
+			} break;
+	
+		case 0x5C: {  // CMD_REF_FAR_COND_OVERRIDE
+			uint CMD_REF_FAR_COND_OVERRIDE_0;
+			uint CMD_REF_FAR_COND_OVERRIDE_1;
+			} break;
+	
+		case 0x5D: {  // SET_CALLBACK_ARRAY
+			uint SET_CALLBACK_ARRAY_0;
+			} break;
+	
+		case 0x5E: {  // CALL_CALLBACK
+			uint CALL_CALLBACK_0;
+			} break;
+	
+		case 0x60: {  // SET_VERTEX_DECL_EX
+			uint SET_VERTEX_DECL_EX_0;
+			} break;
+	
+		case 0x68: {  // CMD_SET_CS_INPUT
+			uint CMD_SET_CS_INPUT_0;
+			} break;
+	
+		case 0x69: {  // CMD_SET_CS_OUTPUT
+			uint CMD_SET_CS_OUTPUT_0;
+			} break;
+	
+		case 0x6A: {  // CMD_DISPATCH
+			uint CMD_DISPATCH_0;
+			uint CMD_DISPATCH_1;
+			uint CMD_DISPATCH_2;
+			} break;
+	
+		case 0x6B: {  // CMD_COPY_RESOURCE
+			uint CMD_COPY_RESOURCE_0;
+			uint CMD_COPY_RESOURCE_1;
+			} break;
+	
+		case 0x6C: {  // SET_MATERIAL
+			uint SET_MATERIAL_0;
+			} break;
+	
+		case 0x6D: {  // CMD_SET_MATERIAL
+			uint CMD_SET_MATERIAL_0;
+			} break;
+	
+		case 0x6E: {  // UPDATE_DYNAMIC_VERTEX_BUFFER
+			uint UPDATE_DYNAMIC_VERTEX_BUFFER_0;
+			uint UPDATE_DYNAMIC_VERTEX_BUFFER_1;
+			} break;
+	
+		case 0x6F: {  // CMD_COPY_STRUCTURE_COUNT
+			uint CMD_COPY_STRUCTURE_COUNT_0;
+			uint CMD_COPY_STRUCTURE_COUNT_1;
+			} break;
+	
+		case 0x71: {  // CMD_CS_TASK_START
+			// no data
+			} break;
+	
+		case 0x73: {  // SET_TEXTURE_UNRESOLVED
+			uint SET_TEXTURE_UNRESOLVED_0;
+			uint SET_TEXTURE_UNRESOLVED_1;
+			} break;
+	
+		case 0x74: {  // SET_TEXTURE_STATE_UNRESOLVED
+			uint SET_TEXTURE_STATE_UNRESOLVED_0;
+			uint SET_TEXTURE_STATE_UNRESOLVED_1;
+			} break;
+	
+		case 0x75: {  // SET_TEXTURE2
+			uint SET_TEXTURE2_0;
+			} break;
+	
+		case 0x76: {  // SET_TEXTURE_STATE2
+			uint SET_TEXTURE_STATE2_0;
+			} break;
+	
+		case 0x77: {  // SET_STRUCTURED_BUFFER_VS
+			uint SET_STRUCTURED_BUFFER_VS_0;
+			uint SET_STRUCTURED_BUFFER_VS_1;
+			} break;
+	
+		case 0x78: {  // CMD_CLEAR_UAV_FLOAT
+			uint CMD_CLEAR_UAV_FLOAT_0;
+			uint CMD_CLEAR_UAV_FLOAT_1;
+			} break;
+	
+		case 0x79: {  // CMD_CLEAR_UAV_UINT
+			uint CMD_CLEAR_UAV_UINT_0;
+			uint CMD_CLEAR_UAV_UINT_1;
+			} break;
+	
+		case 0x7A: {  // SET_MERGED_INDEX_BUFFER
+			uint SET_MERGED_INDEX_BUFFER_0;
+			} break;
+	
+		case 0x7B: {  // SET_MERGED_VERTEX_DECL
+			uint SET_MERGED_VERTEX_DECL_0;
+			} break;
+	
+		case 0x7C: {  // CMD_DISPATCH_WITH_NUM_THREADS
+			uint CMD_DISPATCH_WITH_NUM_THREADS_0;
+			uint CMD_DISPATCH_WITH_NUM_THREADS_1;
+			uint CMD_DISPATCH_WITH_NUM_THREADS_2;
+			} break;
+	
+		case 0x7D: {  // CMD_COMMIT_CB
+			uint CMD_COMMIT_CB_0;
+			} break;
+	
+		case 0x7E: {  // CMD_DRAW_INDEXED_INSTANCED
+			uint CMD_DRAW_INDEXED_INSTANCED_0;
+			uint CMD_DRAW_INDEXED_INSTANCED_1;
+			} break;
+	
+		default: {
+			// Unknown or unsupported opcode
+			}
+		}
+	};
+
+
+struct dr3MdlCommandBuffer_t ( uint end_pos ) {
+	while (FTell() < end_pos) {
+		dr3MdlCommandBufferEntry_t entry;
+		}
+    };
+
+struct dr3MdlVDHeaderEntry_t {           // 16 B
+    uint    numVDEntries;        // unk030
+    uint    unk031;
+    uint    hash;                // unk032
+    int     unk033;
+    };
+
+struct dr3MdlMaskRenderStripEntry_t {   // 36 B
+    uint    always_1;            // unk020
+    uint    index;
+    uint    material_id;
+    uint    flag1;
+    uint    flag2;
+    uint    count_from_desc2;
+    uint    flag3;
+    uint    cmdBufOffset;
+    uint    elementSize;
+    };
+
+struct dr3MdlDesc2_t {                  // 76 B
+    uint    unk040;
+    uint    unk041;
+    uint    unk042;
+    uint    unk043;
+    uint    unk044;
+    uint    numVD;               // unk045 ¨C vertex-decl count for mesh
+    uint    unk046;
+    uint    unk047;
+    float   unk048[4];
+    float   unk049[4];
+    uint    unk050;
+    uint    unk051;
+    uint    unk052;
+    };
+
+struct dr3MdlLocatorArrayEntry_t {
+    uint   unk150;        // 00
+    float  unk151[7];     // 04 ¨C 7 floats
+    uint   unk152;        // 1C
+    float  unk153;        // 20
+    float  unk154[3];     // 24 ¨C 3 floats
+    };                       // sizeof = 4 + (7¡Á4) + 4 + 4 + (3¡Á4) = 52 bytes
+
+struct dr3MdlLocatorArray_t( int count ) {
+    dr3MdlLocatorArrayEntry_t entry[count];
+    };
+
+struct dr3MdlBufferHeader_t( int count ) {
+    dr3MdlBufferHeaderEntry_t entry[count];
+    };
+
+struct dr3BigStringBuffer_t ( uint data_offset) {
+	while (FTell() < data_offset) {
+		dr3String_t name;
+		}
+    };
+
+struct dr3BigFile_t {                   // 28 B
+    local string name;
+    uint    filename_offset;
+    uint    hash <format=hex>;
+    uint    compressed_size;
+    uint    uncompressed_size;
+    uint    offset;
+    uint    content_id;         // file-type tag
+    uint    compression_flag;   // 0 = raw, 1 = zlib
+    };
+
+struct dr3BigHeader_t {
+    uint    magic;                  // 0x03040506
+    uint    data_offset;
+    uint    filesize;
+    uint    filecount;
+    uint    filetable_offset;
+    uint    stringtable_offset;
+    
+    // ----------------- file-table -----------------
+    FSeek( Header.filetable_offset );
+    dr3BigFile_t entry[Header.filecount];
+
+    // ----------------- filename table -------------
+    FSeek( Header.stringtable_offset );
+    
+    dr3BigStringBuffer_t names( Header.data_offset );
+    };
+
+struct dr3MdlSceneDescriptionName_t {
+    char name[36];
+    };      
+
+struct dr3MdlSceneDescription_t (int count) {
+    dr3MdlSceneDescriptionName_t entry[count];
+
+    };
+
+struct dr3BigRawFile_t ( uint size ) {
+    ubyte data[size];
+    };
+
+struct dr3BigPayload_t (dr3BigHeader_t &Header) {
+    local int k;
+    local int i;
+    local int cmd_count = 0;
+    local int SceneDescriptionCount = 0;
+    for( i = Header.filecount - 1; i >= 0; i-- ) {
+        if (Header.entry[i].compression_flag > 0) {continue;}
+        Header.entry[i].name = ReadString( Header.entry[i].filename_offset );
+        FSeek(Header.entry[i].offset);
+        
+        switch (Header.entry[i].hash) {
+            case 0x76276728: { // _ANIMLIB_SKELETON_
+                drAnimLibSkeleton_t AnimLibSkeleton;
+                break;
+                }
+            case 0xC5327D62: { // _ATTRIBUTE_
+                uint Attribute;
+                break;
+                }
+            case 0x95767A97: { // _BOUNDINGBOX_
+                dr3MdlBoundingBox_t BoundingBox;
+                break;
+                }
+            case 0x4E0611F9: { // MatArray
+                dr3MdlMatArray_t MatArray ( Header.entry[i].uncompressed_size / 80.0 );
+                break;
+                }
+            case 0x9270310: { // MatParameterArray
+                dr3MdlMatParameterArray_t MatParameterArray ( Header.entry[i].uncompressed_size / 20.0 );
+                break;
+                }
+            case 0x9DF5B123: { // MatSamplerInfoArray
+                dr3MdlMatSamplerInfoArray_t MatSamplerInfoArray ( Header.entry[i].uncompressed_size / 40.0 );
+                break;
+                }
+            case 0x36AD89B0: { // MatTextureInfoArray
+                dr3MdlMatTextureInfoArray_t MatTextureInfoArray ( Header.entry[i].uncompressed_size / 16.0 );
+                break;
+                }
+            case 0x25E51BB9: { // SceneHeader
+                dr3MdlSceneHeader_t SceneHeader;
+                break;
+                }
+            case 0x804BAFD0: { // SceneDescription
+                dr3MdlSceneDescription_t SceneDescription (Header.entry[i].uncompressed_size / 36.0);
+                break;
+                }
+            case 0xDF8B260D: { // TextureNames
+                dr3MdlTextureNames_t TextureNames;
+                break;
+                }
+            case 0x60C4E95E: { // TotalIBSize
+                uint TotalIBSize;
+                break;
+                }
+            case 0x8105D991: { // TotalVBSize
+                uint TotalVBSize;
+                break;
+                }
+            case 0x62EEF160: { // Combined_IBHeader
+                dr3MdlBufferHeader_t Combined_IBHeader ( Header.entry[i].uncompressed_size / 24.0 );
+                break;
+                }
+            case 0xAAD4F813: { // Combined_VBHeader
+                dr3MdlBufferHeader_t Combined_VBHeader ( Header.entry[i].uncompressed_size / 24.0 );
+                break;
+                }
+            case 0x303EBA9: { // NumLocatorArray
+                uint NumLocatorArray;
+                break;
+                }
+            case 0xE2B35703: { // LocatorArray
+                dr3MdlLocatorArray_t LocatorArray ( Header.entry[i].uncompressed_size / 52.0 );
+                break;
+                }
+            default: {
+                
+                if( Strstr( Header.entry[i].name, "desc2" ) >= 0 ) {
+                    dr3MdlDesc2_t desc2 <name="desc --- Mesh loop starts here ---">;;
+                    }
+                else if( Strstr( Header.entry[i].name, "CommandBuffer" ) >= 0 ) {
+                    
+                    cmd_count = Header.entry[i].offset + Header.entry[i].uncompressed_size;
+                    dr3MdlCommandBuffer_t CommandBuffer( cmd_count );
+                    }
+                else if( Strstr( Header.entry[i].name, "D3DVertexDesc" ) >= 0 ) {
+                    dr3MdlD3DVertexDesc_t D3DVertexDesc (Header.entry[i].uncompressed_size / 28.0);
+                    }
+                else if( Strstr( Header.entry[i].name, "MaskRenderStrip" ) >= 0 ) {
+                    dr3MdlMaskRenderStripEntry_t MaskRenderStrip;
+                    }
+                else if( Strstr( Header.entry[i].name, "VDHeader" ) >= 0 ) {
+                    dr3MdlVDHeaderEntry_t VDHeader;
+                    }
+                else if( Strstr( Header.entry[i].name, "Combined Indices" ) >= 0 ) {
+                    dr3BigRawFile_t Combined_Indices (Header.entry[i].uncompressed_size);
+                    }
+                else if( Strstr( Header.entry[i].name, "Combined Vertices" ) >= 0 ) {
+                    dr3BigRawFile_t Combined_Vertices (Header.entry[i].uncompressed_size);
+                    }
+                else {
+                    dr3BigRawFile_t Blob (Header.entry[i].uncompressed_size);
+                    }
+                }
+            }
+        }
+    };
+
+struct dr3Big_t {
+    dr3BigHeader_t Header;
+    dr3BigPayload_t Payload(Header);
+    };
+
+dr3Big_t bigFile;
+
+/*  EOF  */
