@@ -1,25 +1,24 @@
-/*	======================================================================
-	
-	Maxscript:    [PC] Dead Rising 3
-	Author:       mariokart64n
-	Date:         April 27 2025
-	Version:      0.5
-	
-	======================================================================
-	
-	Description:
-		Imports models (.big) from the PC game Dead Rising 3
-		
-	======================================================================
-	History:
-		2025-04-27
-			- restored missing functions that were accidentially deleted
-			- added preview for the material and texture names. still need to write additional functions...
-			
-		
-	====================================================================== */
+/*======================================================================
+        D E A D   R I S I N G   3   –   M O D E L   I M P O R T E R
+  ======================================================================
+  
+  Maxscript:  [PC] Dead Rising 3
+  Author:     mariokart64n
+  Date:       April 27 2025
+  Version:    0.5
 
+  ======================================================================
 
+  Description:
+    Imports models (.big) from the PC game Dead Rising 3
+    
+  ======================================================================
+  History:
+    2025-04-27
+      - added read for vertex description
+      
+    
+  ====================================================================== */
 gc()
 clearListener()
 try(DestroyDialog dr3_util)catch(dr3_util)
@@ -1187,8 +1186,8 @@ rollout dr3_util "dr3_util" (
 		)
 	
 	struct drAnimLibSkeletonEntry_t ( -- 36 bytes
-		/*uint16_t*/ unk006 = #(0.0, 0.0, 0.0, 0.0), -- quat
-		/*float[4]*/ unk007 = #(0.0, 0.0, 0.0), -- position
+		/*float[4]* unk006 = #(0.0, 0.0, 0.0, 0.0), -- quat
+		/*float[3]*/ unk007 = #(0.0, 0.0, 0.0), -- position
 		/*uint32_t*/ unk008 = 0, -- unknown
 		/*uint32_t*/ unk009 = 0, -- unknown
 		fn read f = (
@@ -1641,6 +1640,62 @@ rollout dr3_util "dr3_util" (
 			s.write_ulong(unk133)
 			s.write_ulong(unk134)
 			)
+		)
+	
+	struct dr3MdlMaskRenderStripEntry_t ( -- 36 Bytes
+		/*uint32_t*/ unk020 = 0, -- always 1 ?
+		/*uint32_t*/ unk021 = 0, -- index?
+		/*uint32_t*/ unk022 = 0, -- material id?
+		/*uint32_t*/ unk023 = 0, -- flag
+		/*uint32_t*/ unk024 = 0, -- flag
+		/*uint32_t*/ unk025 = 0, -- count from desc2
+		/*uint32_t*/ unk026 = 0, -- flag
+		/*uint32_t*/ unk027 = 0,-- commandBUffer Offset to element
+		/*uint32_t*/ unk028 = 0, -- ? CommandBuffer, Element Size? ((n*4)+4) ?
+		
+		-- for internal processing
+		unk027_index = -1,
+		unk028_count = -1,
+		fn read f = (
+			unk020 = f.read_ulong()
+			unk021 = f.read_ulong()
+			unk022 = f.read_ulong()
+			unk023 = f.read_ulong()
+			unk024 = f.read_ulong()
+			unk025 = f.read_ulong()
+			unk026 = f.read_ulong()
+			unk027 = f.read_ulong()
+			unk028 = f.read_ulong()
+			),
+		fn write s = (
+			s.write_ulong(unk020)
+			s.write_ulong(unk021)
+			s.write_ulong(unk022)
+			s.write_ulong(unk023)
+			s.write_ulong(unk024)
+			s.write_ulong(unk025)
+			s.write_ulong(unk026)
+			s.write_ulong(unk027)
+			s.write_ulong(unk028)
+			)
+		)
+	
+	struct dr3MdlMaskRenderStrip_t ( -- (n * 28) Bytes
+		
+		/*dr3MdlMaskRenderStripEntry_t[]*/ entry = #(),
+		
+		fn size = (36 * entry.count),
+		fn read f count = (
+			entry = #()
+			if count > 0 do (
+				entry[count] = dr3MdlMaskRenderStripEntry_t()
+				for i = 1 to count do (
+					entry[i] = dr3MdlMaskRenderStripEntry_t()
+					entry[i].read(f)
+					)
+				)
+			),
+		fn write s = (for o in entry do (s.write(o)))
 		)
 	
 	struct dr3MdlCommandBufferEnum_t (
@@ -2354,12 +2409,7 @@ rollout dr3_util "dr3_util" (
 					)
 				)
 			
-			if verbose and data != undefined and cmd[1] != 0x0C and cmd[1] != 0x0D and cmd[1] != 0x73 and cmd[1] != 0x74 and cmd[1] != 0x35 and cmd[1] != 0x38 and cmd[1] != 0x39 do (
-				
-				format "% [%, %, %]: %\n" (ENUM.toString(cmd[1])) cmd[2] cmd[3] cmd[4]  (data as string)
-				if cmd[1] == 8 do format ">>>\n"
-				
-				)
+
 			
 			result
 			),
@@ -2386,18 +2436,46 @@ rollout dr3_util "dr3_util" (
 				)
 			nsize
 			),
-		fn read f end_pos verbose:true = (
+		fn read f end_pos &MaskRenderStrip verbose:false = (
+			
 			local cnt = 0
+			local pos = f.tell()
+			local cur = 0
 			if verbose do format "Start: \t%\n" ((f.tell()) as integer)
-			while f.tell() < end_pos do (
+			while (cur = f.tell()) < end_pos do (
+				
 				local o = dr3MdlCommandBufferEntry_t()
 				append entry o
 				if not (o.read f cmd_e) do exit
 				cnt+= 1
+				
+				cur = cur - pos
+				--local end = (((f.tell() - pos + cur) / 4.0) as integer)
+				for m in MaskRenderStrip.entry do (
+					-- does the address match the MaskRenderStrip Start Position
+					
+					
+					if cur == m.unk027 then (
+						m.unk027_index = entry.count
+						
+						)
+					-- does the address match the MaskRenderStrip End Position
+					
+					else if cur == m.unk027 + (m.unk028 * 4) then (
+						
+						m.unk028_count = cnt
+						cnt = 0
+						
+						)
+					)
+				
 				)
+			
+
+			
 			if verbose do format "-------------------------------------------------------\n"
 			if verbose do format "End(%): \t%\n" ( cnt ) ((f.tell()) as integer)
-			cnt
+			
 			),
 		fn write s = (for o in entry do (o.write s cmd_e))
 		)
@@ -2787,63 +2865,12 @@ rollout dr3_util "dr3_util" (
 		fn write s = (for o in entry do (s.write(o)))
 		)
 	
-	struct dr3MdlMaskRenderStripEntry_t ( -- 36 Bytes
-		/*uint32_t*/ unk020 = 0, -- always 1 ?
-		/*uint32_t*/ unk021 = 0, -- index?
-		/*uint32_t*/ unk022 = 0, -- material id?
-		/*uint32_t*/ unk023 = 0, -- flag
-		/*uint32_t*/ unk024 = 0, -- flag
-		/*uint32_t*/ unk025 = 0, -- count from desc2
-		/*uint32_t*/ unk026 = 0, -- flag
-		/*uint32_t*/ unk027 = 0,-- commandBUffer Offset to element
-		/*uint32_t*/ unk028 = 0, -- ? CommandBuffer, Element Size? ((n*4)+4) ?
-		
-		fn read f = (
-			unk020 = f.read_ulong()
-			unk021 = f.read_ulong()
-			unk022 = f.read_ulong()
-			unk023 = f.read_ulong()
-			unk024 = f.read_ulong()
-			unk025 = f.read_ulong()
-			unk026 = f.read_ulong()
-			unk027 = f.read_ulong()
-			unk028 = f.read_ulong()
-			),
-		fn write s = (
-			s.write_ulong(unk020)
-			s.write_ulong(unk021)
-			s.write_ulong(unk022)
-			s.write_ulong(unk023)
-			s.write_ulong(unk024)
-			s.write_ulong(unk025)
-			s.write_ulong(unk026)
-			s.write_ulong(unk027)
-			s.write_ulong(unk028)
-			)
-		)
-	
-	struct dr3MdlMaskRenderStrip_t ( -- (n * 28) Bytes
-		
-		/*dr3MdlMaskRenderStripEntry_t[]*/ entry = #(),
-		
-		fn size = (36 * entry.count),
-		fn read f count = (
-			entry = #()
-			if count > 0 do (
-				entry[count] = dr3MdlMaskRenderStripEntry_t()
-				for i = 1 to count do (
-					entry[i] = dr3MdlMaskRenderStripEntry_t()
-					entry[i].read(f)
-					)
-				)
-			),
-		fn write s = (for o in entry do (s.write(o)))
-		)
-	
 	struct dr3MdlD3DVertexDescEntry_t ( -- 28 Bytes
 		
-		/*int64*/ component = 0,
-		/*int64*/ datatype = 0,
+		/*uint32*/ component = 0,
+		/*uint32*/ map_index = 0, -- ?
+		/*uint32*/ datatype = 0,
+		/*uint32*/ buffer_index = 0, -- ?
 		/*int64*/ position = 0,
 		/*uint32*/ channel = 0,
 		fn getType = (
@@ -2866,14 +2893,18 @@ rollout dr3_util "dr3_util" (
 				)
 			),
 		fn read f = (
-			component = f.read_longlong()
-			datatype = f.read_longlong()
+			component = f.read_ulong()
+			map_index = f.read_ulong()
+			datatype = f.read_ulong()
+			buffer_index = f.read_ulong()
 			position = f.read_longlong()
 			channel = f.read_ulong()
 			),
 		fn write s = (
-			s.write_longlong(component)
-			s.write_longlong(datatype)
+			s.write_ulong(component)
+			s.write_ulong(map_index)
+			s.write_ulong(datatype)
+			s.write_ulong(buffer_index)
 			s.write_longlong(position)
 			s.write_ulong(channel)
 			)
@@ -2982,48 +3013,48 @@ rollout dr3_util "dr3_util" (
 		)
 	
 	struct dr3MdlMesh_t (
-		/*dr3MdlDesc2_t*/ desc2 = dr3MdlDesc2_t(),
-		/*dr3MdlMaskRenderStrip_t*/ MaskRenderStrip = dr3MdlMaskRenderStrip_t(),
-		/*dr3MdlVDHeader_t*/ VDHeader = dr3MdlVDHeader_t(),
-		/*dr3MdlCommandBuffer_t*/CommandBuffer = dr3MdlCommandBuffer_t(),
-		/*dr3MdlD3DVertexDesc_t[]*/ D3DVertexDesc = #()
+		/*dr3MdlDesc2_t*/               desc2                   = dr3MdlDesc2_t(),
+		/*dr3MdlMaskRenderStrip_t*/     MaskRenderStrip         = dr3MdlMaskRenderStrip_t(),
+		/*dr3MdlVDHeader_t*/            VDHeader                = dr3MdlVDHeader_t(),
+		/*dr3MdlCommandBuffer_t*/       CommandBuffer           = dr3MdlCommandBuffer_t(),
+		/*dr3MdlD3DVertexDesc_t[]*/     D3DVertexDesc           = #()
 		)
 	
 	struct dr3Mdl_t ( -- collection of files
 		
-		/*byteArray*/ unprocesses_files = #(),
+		/*byteArray*/                   unprocesses_files       = #(),
 		
-		/*drAnimLibSkeleton_t*/ AnimLibSkeleton = drAnimLibSkeleton_t(),
-		/*dr3MdlAttribute_t*/ Attribute = dr3MdlAttribute_t(),
-		/*dr3MdlBoundingBox_t*/ BoundingBox = dr3MdlBoundingBox_t(),
+		/*drAnimLibSkeleton_t*/         AnimLibSkeleton         = drAnimLibSkeleton_t(),
+		/*dr3MdlAttribute_t*/           Attribute               = dr3MdlAttribute_t(),
+		/*dr3MdlBoundingBox_t*/         BoundingBox             = dr3MdlBoundingBox_t(),
 		
-		/*dr3MdlSceneHeader_t*/ SceneHeader = dr3MdlSceneHeader_t(),
-		/*dr3MdlSceneDescription_t*/ SceneDescription = dr3MdlSceneDescription_t(),
-		/*dr3MdlTextureNames_t*/ TextureNames = dr3MdlTextureNames_t(),
+		/*dr3MdlSceneHeader_t*/         SceneHeader             = dr3MdlSceneHeader_t(),
+		/*dr3MdlSceneDescription_t*/    SceneDescription        = dr3MdlSceneDescription_t(),
+		/*dr3MdlTextureNames_t*/        TextureNames            = dr3MdlTextureNames_t(),
 		
-		/*dr3MdlMatArray_t*/ MatArray = dr3MdlMatArray_t(),
-		/*dr3MdlMatParameterArray_t*/ MatParameterArray = dr3MdlMatParameterArray_t(),
-		/*dr3MdlMatSamplerInfoArray_t*/ MatSamplerInfoArray = dr3MdlMatSamplerInfoArray_t(),
-		/*dr3MdlMatTextureInfoArray_t*/ MatTextureInfoArray = dr3MdlMatTextureInfoArray_t(),
+		/*dr3MdlMatArray_t*/            MatArray                = dr3MdlMatArray_t(),
+		/*dr3MdlMatParameterArray_t*/   MatParameterArray       = dr3MdlMatParameterArray_t(),
+		/*dr3MdlMatSamplerInfoArray_t*/ MatSamplerInfoArray     = dr3MdlMatSamplerInfoArray_t(),
+		/*dr3MdlMatTextureInfoArray_t*/ MatTextureInfoArray     = dr3MdlMatTextureInfoArray_t(),
 		
-		/*dr3MdlCommandBuffer_t*/ SharedOpaque = dr3MdlCommandBuffer_t(),
-		/*dr3MdlCommandBuffer_t*/ SharedTransparent = dr3MdlCommandBuffer_t(),
-		/*dr3MdlCommandBuffer_t*/ SharedZPass = dr3MdlCommandBuffer_t(),
-		/*dr3MdlCommandBuffer_t*/ SharedZPassFirst = dr3MdlCommandBuffer_t(),
-		/*dr3MdlCommandBuffer_t*/ SharedZPassSecond = dr3MdlCommandBuffer_t(),
+		/*dr3MdlCommandBuffer_t*/       SharedOpaque            = dr3MdlCommandBuffer_t(),
+		/*dr3MdlCommandBuffer_t*/       SharedTransparent       = dr3MdlCommandBuffer_t(),
+		/*dr3MdlCommandBuffer_t*/       SharedZPass             = dr3MdlCommandBuffer_t(),
+		/*dr3MdlCommandBuffer_t*/       SharedZPassFirst        = dr3MdlCommandBuffer_t(),
+		/*dr3MdlCommandBuffer_t*/       SharedZPassSecond       = dr3MdlCommandBuffer_t(),
 		
-		/*dr3MdlBufferHeader_t*/ Combined_VBHeader = dr3MdlBufferHeader_t(),
-		/*dr3MdlBufferHeader_t*/ Combined_IBHeader = dr3MdlBufferHeader_t(),
-		/*uint16_t*/ Combined_Indices = #(),
-		/*dr3MdlVertex_t*/ Combined_Vertices = #(),
+		/*dr3MdlBufferHeader_t*/        Combined_VBHeader       = dr3MdlBufferHeader_t(),
+		/*dr3MdlBufferHeader_t*/        Combined_IBHeader       = dr3MdlBufferHeader_t(),
+		/*uint16_t*/                    Combined_Indices        = #(), -- I dont store the data just the filetable entry
+		/*dr3MdlVertex_t*/              Combined_Vertices       = #(), -- I dont store the data just the filetable entry
 		
-		/*dr3MdlAttribute_t*/ TotalIBSize = dr3MdlAttribute_t(),
-		/*dr3MdlAttribute_t*/ TotalVBSize = dr3MdlAttribute_t(),
+		/*dr3MdlAttribute_t*/           TotalIBSize             = dr3MdlAttribute_t(),
+		/*dr3MdlAttribute_t*/           TotalVBSize             = dr3MdlAttribute_t(),
 		
-		/*dr3MdlAttribute_t*/ NumLocatorArray = dr3MdlAttribute_t(),
-		/*dr3MdlLocatorArray_t*/ LocatorArray = dr3MdlLocatorArray_t(),
+		/*dr3MdlAttribute_t*/           NumLocatorArray         = dr3MdlAttribute_t(),
+		/*dr3MdlLocatorArray_t*/        LocatorArray            = dr3MdlLocatorArray_t(),
 		
-		/*dr3MdlMesh_t*/ meshes = #(),
+		/*dr3MdlMesh_t*/                meshes = #(),
 		
 		fn getFileIndex namepattern &filetable &filenames &str_lookup &visitedFiles = (
 			local index = 0
@@ -3041,7 +3072,6 @@ rollout dr3_util "dr3_util" (
 		
 		fn read f &filetable &filenames &str_lookup = (
 			
-
 			if filetable.count > 0 then (
 				
 				local visitedFiles = #{1..(filetable.count)}
@@ -3105,7 +3135,6 @@ rollout dr3_util "dr3_util" (
 					if TotalVBSizeIndex > 0 do (
 						f.seek(filetable[TotalVBSizeIndex].offset)
 						TotalVBSize.read(f)
-						format "TotalVBSize: \t%\n" TotalVBSize
 						)
 					
 					-- SharedOpaqueCommandBuffer
@@ -3201,24 +3230,10 @@ rollout dr3_util "dr3_util" (
 						Combined_VBHeader.read f Combined_VBHeaderCount
 						
 						for i = 1 to Combined_VBHeader.entry.count do (
-							
-							local x = getFileIndex ("Combined Vertices " + (Combined_VBHeader.entry[i].unk064 as string)) filetable filenames str_lookup &visitedFiles
-
-							
-							append Combined_VBHeaders x
-							
-							format "Count: \t%\n" Combined_VBHeader.entry[i].unk063
-							format "Stride: \t%\n" Combined_VBHeader.entry[i].unk064
-							
-							totalVerts += Combined_VBHeader.entry[i].unk063
-							append vbufferSizes Combined_VBHeader.entry[i].unk064
-							--for j = 1 to Combined_VBHeader.entry[i].unk063 do (
-							--	f.seek(filetable[x].offset + ((j - 1) * Combined_VBHeader.entry[i].unk064))
-							--	append verts ([f.read_float(), f.read_float(), f.read_float()] * 39.3701)
-							--	)
+							append Combined_Vertices (
+								filetable[getFileIndex ("Combined Vertices " + (Combined_VBHeader.entry[i].unk064 as string)) filetable filenames str_lookup &visitedFiles]
+								)
 							)
-						
-						
 						)
 					
 					-- Combined_IBHeader
@@ -3228,36 +3243,16 @@ rollout dr3_util "dr3_util" (
 						f.seek(filetable[Combined_IBHeaderIndex].offset)
 						Combined_IBHeader.read f Combined_IBHeaderCount
 						
-						
 						for i = 1 to Combined_IBHeader.entry.count do (
-							append Combined_IBHeaders (
-								
-								getFileIndex ("Combined Indices " + (Combined_IBHeader.entry[i].unk064 as string)) filetable filenames str_lookup &visitedFiles
+							append Combined_Indices (
+								filetable[getFileIndex ("Combined Indices " + (Combined_IBHeader.entry[i].unk064 as string)) filetable filenames str_lookup &visitedFiles]
 								)
 							)
-						
 						)
-					
 					) else (format "No Scene Header, Not Model?\n")
-				delete Objects
-				meshes = #()
-				local verts = #()
-				local vpos = 0
-				local ppp = 0
-				local fpos = 0
-				local stride = 0
-					
-				local builtVerts = #{1..(totalVerts)}
-				local vertArray = #()
-				local vertBufIndex = 0
-				vertArray[totalVerts] = [0.0,0.0,0.0]
-				for i = 1 to totalVerts do (vertArray[i] = [0.0,0.0,0.0])
-				
-				local vbufpos = #(0, 0, 0)
-
 				
 				for element in SceneDescription.entry do (
-					print element
+					
 					local o = dr3MdlMesh_t()
 					
 					local desc2Index = getFileIndex (element + " desc2") filetable filenames str_lookup &visitedFiles
@@ -3279,7 +3274,6 @@ rollout dr3_util "dr3_util" (
 							f.seek(filetable[VDHeaderIndex].offset)
 							o.VDHeader.read f o.desc2.unk045
 							
-							
 							o.D3DVertexDesc = #()
 							o.D3DVertexDesc[o.desc2.unk045] = dr3MdlD3DVertexDesc_t()
 							for i = 1 to o.desc2.unk045 do (
@@ -3292,162 +3286,17 @@ rollout dr3_util "dr3_util" (
 									o.D3DVertexDesc[i].read f o.VDHeader.entry[i].unk030
 									)
 								)
-							)
-						local CommandBufferIndex = getFileIndex (element + " CommandBuffer") filetable filenames str_lookup &visitedFiles
-						if CommandBufferIndex > 0 do (
-							--print filetable[CommandBufferIndex]
-							f.seek(filetable[CommandBufferIndex].offset)
-							--format "COMMAND BUFFER: \t%\n" filetable[CommandBufferIndex].offset
-							o.CommandBuffer.read f (filetable[CommandBufferIndex].offset + filetable[CommandBufferIndex].uncompressed_size)
 							
-							local ENUM = dr3MdlCommandBufferEnum_t()
-							
-							local vpos2 = 0
-							local vbBufIndices = #()
-							local vbBufInfo = #()
-							local ibBufIndices = #()
-							local mesh_index = 0
-							for CMD in o.CommandBuffer.entry do (
-								local opcode = CMD.cmd[1]
-								case opcode of (
-									
-									(ENUM.SET_OFFSET_VERTEX_BUFFER): (
-										verts = #()
-										local vbIndex = CMD.cmd[2]
-										local vbStride = CMD.cmd[3]
-										vertBufIndex = findItem vbufferSizes vbStride
-										vpos = CMD.data[1]
-										stride = vbStride
-										for i = 1 to Combined_VBHeader.entry.count do (
-											
-											if vbStride == Combined_VBHeader.entry[i].unk064 do (
-												append vbBufIndices Combined_VBHeaders[i]
-												append vbBufInfo #(vbIndex, vbStride, Combined_VBHeader.entry[i].unk063, Combined_VBHeader.entry[i].unk064)
-												
-												)
-											)
-										)
-									
-									(ENUM.SET_OFFSET_INDEX_BUFFER): (
-										faces = #()
-										local ibIndex = CMD.cmd[1]
-										local ibStride = CMD.cmd[2]
-										
-										fpos = 0
-										if CMD.data != undefined do (
-											fpos = CMD.data[1]
-											)
-										
-										for i = 1 to Combined_IBHeader.entry.count do (
-											if ibStride == Combined_IBHeader.entry[i].unk064 do (
-												
-												append ibBufIndices Combined_IBHeaders[i]
-												)
-											)
-										)
-									
-									(ENUM.CMD_DRAW_INDEXED): (
-										local prim_type = CMD.cmd[2] -- 2=strip, 3=list
-										local idxCount = CMD.data[2]
-										local idxStart = CMD.data[3] -- vertex count?
-										local facePos = CMD.data[4]
-										local faceCount = CMD.data[5] -- Num Indices, need to div 3 to get face count
-										local is3rd = vbBufIndices.count > 2
-										local last_stride = vbBufInfo[1][2]
-										local sdfsd = #()
-										for j = 1 to vbBufIndices.count do (
-											
-											if last_stride != vbBufInfo[j][2] do (
-												vpos2 = verts.count --21052
-												format "POS2: \t% <> %\n" vpos2 vbufpos[vertBufIndex]
-												--select $.baseObject.mesh.verts[#{6894..7271}]
-												--select $.baseObject.mesh.verts[#{6128..6893}]
-												--vpos2 += 378 + 766
-												)
-											
-											for i = 1 to vbBufInfo[j][3] do (
-												f.seek(filetable[vbBufIndices[j]].offset + ((i - 1) * vbBufInfo[j][2]))
-												append verts ([f.read_float(), f.read_float(), f.read_float()] * 39.3701)
-												verts[verts.count] = [verts[verts.count][1], -verts[verts.count][3], verts[verts.count][2]]
-												
-												)
-											append sdfsd vbBufInfo[j][2]
-											last_stride = vbBufInfo[j][2]
-											)
-										
-											-- Start: 	37712
-											-- SET_OFFSET_VERTEX_BUFFER [0, 40, 128]: #(0)
-											-- SET_OFFSET_INDEX_BUFFER [2, 128, 0]: #(45795) 15265
-											-- CMD_DRAW_INDEXED [3, 0, 0]: #(0, 0, 378, 0, 1953)
-											-- >>>
-											-- SET_OFFSET_VERTEX_BUFFER [0, 40, 128]: #(0)
-											-- SET_OFFSET_INDEX_BUFFER [2, 128, 0]: #(41703) 13901
-											-- CMD_DRAW_INDEXED [3, 0, 0]: #(0, 0, 766, 0, 4092)
-											-- >>>
-											-- SET_OFFSET_VERTEX_BUFFER [0, 44, 128]: #(0)
-											-- SET_OFFSET_INDEX_BUFFER [2, 128, 0]: #(31959)
-											-- CMD_DRAW_INDEXED [3, 0, 0]: #(0, 0, 2159, 0, 9744)
-											-- >>>
-										
-										
-										format "vbufpos: \t%\n" vbufpos[vertBufIndex]
-										format "prim_type: \t%\n" prim_type
-										format "idxCount: \t%\n" idxCount
-										format "idxStart: \t%\n" idxStart
-										format "facePos: \t%\n" facePos
-										format "faceCount: \t%\n" faceCount
-										local faces = #()
-										for j = 1 to ibBufIndices.count do (
-											f.seek(filetable[ibBufIndices[j]].offset + (fpos * 2))
-											case prim_type of (
-												
-												3: (
-													local face_count = faceCount / 3.0
-													for i = 1 to face_count do (
-														append faces ([f.read_ushort(), f.read_ushort(), f.read_ushort()] + 1 + vpos + vpos2)
-														if is3rd and i == 1 do (
-															print ((faces[faces.count] - ( 1 + vpos + vpos2)) as string)
-															)
-														)
-													
-													)
-												default: (print "NNNNNNNNNNNNNNNNNNNNNNNNOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO")
-												)
-											)
-										
-											
-										format "verts: \t%\n" verts.count
-										format "faces: \t%\n" faces.count
-										
-										local msh = mesh vertices:verts faces:faces
-										msh.name = ((ppp+=1) as string) + " " + element + " (" + (sdfsd as string) + ")"
-										mesh_index += 1
-										format "Vpos: \t%\n" vpos
-										format "Fpos: \t%\n" fpos
-										vbufpos[vertBufIndex] += idxStart
-										print(vbufpos as string)
-										)
-									)
-								
-								
-								
-								
+							local CommandBufferIndex = getFileIndex (element + " CommandBuffer") filetable filenames str_lookup &visitedFiles
+							if CommandBufferIndex > 0 do (
+								f.seek(filetable[CommandBufferIndex].offset)
+								o.CommandBuffer.read f (filetable[CommandBufferIndex].offset + filetable[CommandBufferIndex].uncompressed_size) &o.MaskRenderStrip
 								)
-							
-							
-							
 							)
-						
-
-						
-						
-						
 						)
 					
-					
-					
+					append meshes o
 					)
-				
 				
 				
 				unprocesses_files = #()
@@ -3466,7 +3315,447 @@ rollout dr3_util "dr3_util" (
 						)
 					)
 				) else (format "No Files?\n")
+			),
+		
+		fn import_old f mscale:39.3701 = (
+			
+			print "Building Mesh......"
+			
+			
+			-- clear scene
+			delete objects
+			
+			-- Build each mesh object
+			local ENUM = dr3MdlCommandBufferEnum_t()
+			
+			local VBHeaders = for o in Combined_VBHeader.entry collect o.unk064
+			
+			local last_vbuf_pos = #(0, 0, 0, 0)
+			
+			local globalVertArray = #()
+			
+			
+			for m = 1 to meshes.count do (
+				
+				--if m > 2 do continue
+				
+				format "\nv---------------- Mesh% ----------------v\n" m
+				format "Name: \t%\n" SceneDescription.entry[m]
+				-- Interpret each command
+				local vertex_starts = #()
+				local index_start = 0
+				local sm = 1
+				
+				local vertArray = #()
+				local faceArray = #()
+				
+				format "\nDescription:\n"
+				format "\tunk040:   \t%\n" meshes[m].desc2.unk040
+				format "\tunk041:   \t%\n" meshes[m].desc2.unk041
+				format "\tunk042:   \t%\n" meshes[m].desc2.unk042
+				format "\tunk043:   \t%\n" meshes[m].desc2.unk043
+				format "\tunk044:   \t%\n" meshes[m].desc2.unk044
+				format "\tunk045:   \t%\n" meshes[m].desc2.unk045
+				format "\tunk046:   \t%\n" meshes[m].desc2.unk046
+				format "\tunk047:   \t%\n" meshes[m].desc2.unk047
+				format "\tunk050:   \t0x%\n" (bit.intAsHex meshes[m].desc2.unk050)
+				format "\tunk051:   \t0x%\n" (bit.intAsHex meshes[m].desc2.unk051)
+				format "\tunk052:   \t% ? reset flag?\n" meshes[m].desc2.unk052
+				
+				
+				for r in meshes[m].MaskRenderStrip.entry do (
+					
+					format "\nMaskRenderStrip:\n"
+					format "\tunk020:   \t%\n"   r.unk020
+					format "\tunk021:   \t%\n"   r.unk021
+					format "\tunk022:   \t% ? Material index\n"   r.unk022
+					format "\tunk023:   \t0x%\n"   (bit.intAsHex r.unk023)
+					format "\tunk024:   \t0x%\n"   (bit.intAsHex r.unk024)
+					format "\tunk025:   \t%\n"   r.unk025
+					format "\tunk026:   \t%\n"   r.unk026
+					
+					for c = r.unk027_index to r.unk028_count do (
+						local cmd = meshes[m].CommandBuffer.entry[c]
+						
+						case cmd.cmd[1] of (
+							(ENUM.CMD_RET): ()
+							(ENUM.SET_DRAW_STATE): (
+								--if cmd.cmd[4] != 0 do last_vbuf_pos = #(0, 0, 0, 0)
+								)
+							(ENUM.SET_VERTEX_DECL): ()
+							(ENUM.SET_OFFSET_VERTEX_BUFFER): (
+								append vertex_starts #(
+									cmd.cmd[2], -- VertDesc Index?
+									cmd.cmd[3], -- Vertex Stride
+									cmd.cmd[4], -- Vertex Flag
+									cmd.data[1]   -- Vertex Start Position
+									)
+								)
+							
+							(ENUM.SET_OFFSET_INDEX_BUFFER): (
+								index_start = cmd.data[1]
+								)
+							
+							(ENUM.CMD_DRAW_INDEXED): (
+								
+								
+								local prim_type = cmd.cmd[2]
+								local vertex_count = cmd.data[3]
+								local face_count = cmd.data[5]
+								
+								format "_______________________________\n"
+								format "SubMesh%:\n" sm
+								
+								format "\tprim_type:    \t%\n"    prim_type
+								format "\tvertex_count: \t%\n" vertex_count
+								format "\tface_count:   \t%\n"   face_count
+								
+								
+								
+								-- Retrieve Vertex Buffer Info
+								local VertDesc_Index = vertex_starts[sm][1] + 1
+								local Vertex_Stride  = vertex_starts[sm][2]
+								local Vertex_Flag    = vertex_starts[sm][3]
+								local vpos   = vertex_starts[sm][4]
+								local VBuf_Index     = findItem VBHeaders Vertex_Stride
+								local VBuf_Offset    = Combined_Vertices[VBuf_Index].offset -- Base Offset
+								
+								format "\tVertDesc_Index: \t%\n"   VertDesc_Index
+								format "\tVertex_Stride:  \t%\n"   Vertex_Stride
+								format "\tVertex_Flag:    \t0x%\n" (bit.IntAsHex Vertex_Flag)
+								format "\tvpos:   \t%\n"   vpos
+								format "\tVBuf_Index:     \t%\n"   VBuf_Index
+								format "\tVBuf_Offset:    \t%\n"   VBuf_Offset
+								format "\tLastVBufPos:    \t%\n"   last_vbuf_pos[VBuf_Index]
+								format "\tIBuf_Offset:    \t%\n"   (Combined_Indices[1].offset + (index_start * 2))
+								
+								-- Construct Vertices
+								for v = 1 to vertex_count do (
+									
+									-- Loop through each vertex component
+									for fvf in meshes[m].D3DVertexDesc[VertDesc_Index].entry do (
+										
+										-- Jump to vertex address
+										f.seek(VBuf_Offset + last_vbuf_pos[VBuf_Index] + ((vpos + (v - 1)) * Vertex_Stride) + fvf.position)
+										
+										
+										local val = #(0.0, 0.0, 0.0, 0.0)
+										case fvf.datatype of (
+											0x06: ( -- 12 Bytes
+												val = #(f.read_float(), f.read_float(), f.read_float(), 1.0)
+												)
+											0x0D: ( -- 8 Bytes
+												val = #(f.read_float(), f.read_float(), 0.0, 0.0)
+												)
+											0x10: ( -- 8 Bytes
+												val = #(f.read_float(), f.read_float(), 0.0, 0.0)
+												)
+											0x1C: ( -- 8 Bytes
+												val = #(f.read_short() / 32767.0, f.read_short() / 32767.0, 0.0, 0.0)
+												)
+											0x1E: ( -- 4 Bytes
+												val = #(f.read_byte() / 127.0, f.read_byte() / 127.0, f.read_byte() / 127.0, f.read_byte() / 127.0)
+												)
+											0x25: ( -- 4 Bytes
+												val = #(f.read_byte() / 127.0, f.read_byte() / 127.0, f.read_byte() / 127.0, f.read_byte() / 127.0)
+												)
+											default: (
+												print ("UNKNOWN VERTEX TYPE: \t0x" + (bit.IntAsHex fvf.datatype) + "\n")
+												)
+											)
+										case fvf.component of (
+											0x00: ( -- position
+												append vertArray ([val[1], -val[3], val[2]] * mscale)
+												)
+											0x01: ( -- weight
+												-- Add weight handling if needed
+												)
+											0x02: ( -- boneid
+												-- Add boneid handling if needed
+												)
+											0x03: ( -- normal
+												-- Add normal handling if needed
+												)
+											0x04: ( -- binormal
+												-- Add binormal handling if needed
+												)
+											0x05: ( -- texture
+												-- Add texture handling if needed
+												)
+											0x06: ( -- tangent
+												-- Add tangent handling if needed
+												)
+											0x0A: ( -- color?
+												-- Add tangent handling if needed
+												)
+											default: (
+												print ("UNKNOWN COMPONENT TYPE: \t0x" + (bit.IntAsHex fvf.component) + "\n")
+												)
+											)
+										)
+									
+									)
+								
+								local max_index = 0
+								f.seek(Combined_Indices[1].offset + (index_start * 2))
+								
+								for i = 1 to (face_count / 3) as integer do (
+									
+									local face = [f.read_ushort(), f.read_ushort(), f.read_ushort()] + 1
+									
+									for v = 1 to 3 do (
+										if face[v] > max_index do (max_index = face[v] as integer)
+										)
+									
+									--append faceArray face
+									)
+								format "\tMAX_Index:     \t%\n"   max_index
+								
+								local msh = mesh \
+									vertices:vertArray \
+									faces:faceArray \
+									name:((m as string) + " " + SceneDescription.entry[m])
+								
+								
+								-- patch to get those shoes working... wtfs
+								
+								last_vbuf_pos[VBuf_Index] += vertex_count * Vertex_Stride
+								print (last_vbuf_pos as string)
+								
+								
+								sm += 1
+								)
+							)
+						
+						
+						
+						)
+					
+
+
+
+					)
+				)
+			),
+		
+		fn import f mscale:39.3701 = (
+			
+
+			-- clear scene
+			delete objects
+			
+			-- Build each mesh object
+			local ENUM = dr3MdlCommandBufferEnum_t()
+			
+			-- Get Total Number of Vertices
+			local total_vertex_count = 0
+			for vb in Combined_VBHeader.entry do (
+				total_vertex_count += vb.unk063
+				)
+			
+			-- Build a Global Vertex Buffer
+			if total_vertex_count > 0 do (
+				local globalVertArray = #()
+				globalVertArray.count = total_vertex_count
+				globalVertArray[total_vertex_count] = [0.0, 0.0, 0.0]
+				local gblIdx = 0
+				for vb in Combined_VBHeader.entry do (
+					globalVertArray[gblIdx+=1] = [0.0, 0.0, 0.0]
+					)
+				)
+			
+			-- Build Through the Vertex Buffers
+			local globalIndex = 1
+			for b = 0 to Combined_VBHeader.entry.count - 1 do (
+				local vb = Combined_VBHeader.entry[b + 1]
+				
+				
+				
+				
+				globalVertArray[gblIdx+=1] = [0.0, 0.0, 0.0]
+				
+				globalIndex += 1
+				)
+			
+			 -- for tracking vertex positions for each vbuffer
+			local VBHeaders = for o in Combined_VBHeader.entry collect o.unk064 -- for lookup
+			for m = 1 to meshes.count do ( -- Loop Through Each Mesh / Command Buffer
+
+				
+				-- Interpret each command
+				local vertex_starts = #()
+				local index_start = 0
+				local sm = 1
+				local Vertex_Last_VBuf = -1
+
+				local ri = 0
+				local vertex_counter = 0
+				local vpos = 0
+				local vertex_pos = for i = 1 to Combined_VBHeader.entry.count collect 0
+				for r in meshes[m].MaskRenderStrip.entry do (
+					
+
+					
+					for c = r.unk027_index to ((r.unk027_index - 1) + r.unk028_count) do (
+						local cmd = meshes[m].CommandBuffer.entry[c]
+						
+						case cmd.cmd[1] of (
+							(ENUM.CMD_RET): ()
+							(ENUM.SET_DRAW_STATE): (
+								--if cmd.cmd[4] != 0 do vertex_pos = #(0, 0, 0, 0)
+								)
+							(ENUM.SET_VERTEX_DECL): ()
+							(ENUM.SET_OFFSET_VERTEX_BUFFER): (
+								append vertex_starts #(
+									cmd.cmd[2], -- VertDesc Index?
+									cmd.cmd[3], -- Vertex Stride
+									cmd.cmd[4], -- Vertex Flag
+									cmd.data[1] -- Vertex Start Position
+									)
+								)
+							
+							(ENUM.SET_OFFSET_INDEX_BUFFER): (
+								index_start = cmd.data[1]
+								)
+							
+							(ENUM.CMD_DRAW_INDEXED): (
+								local vertArray = #()
+								local faceArray = #()
+								local prim_type = cmd.cmd[2]
+								local vertex_count = cmd.data[3]
+								local face_count = cmd.data[5]
+								
+
+								
+								-- Retrieve Vertex Buffer Info
+								local VertDesc_Index = vertex_starts[sm][1] + 1
+								local Vertex_Stride  = vertex_starts[sm][2]
+								local Vertex_Flag    = vertex_starts[sm][3]
+								local vpos   = vertex_starts[sm][4]
+								local VBuf_Index     = findItem VBHeaders Vertex_Stride
+								local VBuf_Offset    = Combined_Vertices[VBuf_Index].offset -- Base Offset
+								
+								
+								
+								
+								if Vertex_Last_VBuf == -1 do (
+									Vertex_Last_VBuf = VBuf_Index
+									)
+								
+								vertex_pos[VBuf_Index] += vpos
+								
+								vertex_counter += Combined_VBHeader.entry[VBuf_Index].unk063
+								
+
+								
+								
+								for i = 1 to (face_count / 3) as integer do (
+									
+									f.seek(Combined_Indices[1].offset + ((index_start + ((i - 1) * 3)) * 2))
+									
+									-- shift face index
+									local face = [f.read_ushort(), f.read_ushort(), f.read_ushort()] + vpos
+									
+									append faceArray ([1, 2, 3] + ((i - 1) * 3))
+									
+									-- Construct Vertices
+									for j = 1 to 3 do (
+										local v = face[j]
+										
+										-- Loop through each vertex component
+										for fvf in meshes[m].D3DVertexDesc[VertDesc_Index].entry do (
+											
+											-- Jump to vertex address
+											f.seek(VBuf_Offset + (v * Vertex_Stride) + fvf.position)
+											
+											
+											local val = #(0.0, 0.0, 0.0, 0.0)
+											case fvf.datatype of (
+												0x06: ( -- 12 Bytes
+													val = #(f.read_float(), f.read_float(), f.read_float(), 1.0)
+													)
+												0x0D: ( -- 8 Bytes
+													val = #(f.read_float(), f.read_float(), 0.0, 0.0)
+													)
+												0x10: ( -- 8 Bytes
+													val = #(f.read_float(), f.read_float(), 0.0, 0.0)
+													)
+												0x1C: ( -- 8 Bytes
+													val = #(f.read_short() / 32767.0, f.read_short() / 32767.0, 0.0, 0.0)
+													)
+												0x1E: ( -- 4 Bytes
+													val = #(f.read_byte() / 127.0, f.read_byte() / 127.0, f.read_byte() / 127.0, f.read_byte() / 127.0)
+													)
+												0x25: ( -- 4 Bytes
+													val = #(f.read_byte() / 127.0, f.read_byte() / 127.0, f.read_byte() / 127.0, f.read_byte() / 127.0)
+													)
+												default: (
+													print ("UNKNOWN VERTEX TYPE: \t0x" + (bit.IntAsHex fvf.datatype) + "\n")
+													)
+												)
+											
+											case fvf.component of (
+												0x00: ( -- position
+													append vertArray ([val[1], -val[3], val[2]] * mscale)
+													)
+												0x01: ( -- weight
+													-- Add weight handling if needed
+													)
+												0x02: ( -- boneid
+													-- Add boneid handling if needed
+													)
+												0x03: ( -- normal
+													-- Add normal handling if needed
+													)
+												0x04: ( -- binormal
+													-- Add binormal handling if needed
+													)
+												0x05: ( -- texture
+													-- Add texture handling if needed
+													)
+												0x06: ( -- tangent
+													-- Add tangent handling if needed
+													)
+												0x0A: ( -- color?
+													-- Add tangent handling if needed
+													)
+												default: (
+													print ("UNKNOWN COMPONENT TYPE: \t0x" + (bit.IntAsHex fvf.component) + "\n")
+													)
+												)
+											)
+										
+										)
+									
+									--append faceArray face
+									)
+								local msh = mesh vertices:vertArray faces:faceArray name:((sm as string) + " " + SceneDescription.entry[m])
+								
+								
+								
+								
+								
+								sm += 1
+								)
+							)
+						
+						
+						
+						)
+					
+
+
+
+					)
+				)
 			)
+
+
+
+
+
+
+
 		
 		)
 	
@@ -3711,6 +4000,7 @@ rollout dr3_util "dr3_util" (
 					for i = 1 to filecount do (
 						filetable[i] = dr3BigFile_t()
 						filetable[i].read(f)
+						--print filetable[i]
 						)
 					)
 				filenames = #()
@@ -3720,7 +4010,7 @@ rollout dr3_util "dr3_util" (
 					local str = f.read_string()
 					append filenames str
 					)
-				
+				dumpPath=""
 				if dumpPath != undefined and dumpPath != "" then (
 					
 					local str_end = subString dumpPath dumpPath.count 1
@@ -3764,6 +4054,7 @@ rollout dr3_util "dr3_util" (
 				else if findItem filenames "SceneHeader" > 0 then (
 					mdl = dr3Mdl_t()
 					mdl.read f filetable filenames str_lookup
+					mdl.import(f)
 					print "Read Completed"
 					) 
 				else (
@@ -3820,9 +4111,10 @@ dr3_util.read(
 -- 	"G:\\SteamLibrary\\steamapps\\common\\deadrising3\\_DUMP\\cine_zombee.big"
 -- 	"G:\\SteamLibrary\\steamapps\\common\\deadrising3\\_DUMP\\boss_02 (2).big"
 -- 	"G:\\SteamLibrary\\steamapps\\common\\deadrising3\\_DUMP\\grapes.big"
--- 	"G:\\SteamLibrary\\steamapps\\common\\deadrising3\\_DUMP\\BIG\\legs_fembusiness_m0.big"
--- 	"G:\\SteamLibrary\\steamapps\\common\\deadrising3\\_DUMP\\BIG\\feeto_hawaiian_m0.big"
--- 	"G:\\SteamLibrary\\steamapps\\common\\deadrising3\\_DUMP\\BIG\\dlc_sonya_paddock.big"
+	"G:\\SteamLibrary\\steamapps\\common\\deadrising3\\_DUMP\\BIG\\legs_fembusiness_m0.big"
+	"G:\\SteamLibrary\\steamapps\\common\\deadrising3\\_DUMP\\BIG\\feeto_hawaiian_m0.big"
+	"G:\\SteamLibrary\\steamapps\\common\\deadrising3\\_DUMP\\BIG\\dlc_sonya_paddock.big"
 -- 	"G:\\SteamLibrary\\steamapps\\common\\deadrising3\\_DUMP\\BIG\\f_trucker_m1_0_ch_00.big"
+-- 	"G:\\SteamLibrary\\steamapps\\common\\deadrising3\\_DUMP\\BIG\\Z001_Tree70Shape.big"
 	getOpenFileName()
 	)
