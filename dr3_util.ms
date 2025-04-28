@@ -1,5 +1,5 @@
 /*======================================================================
-        D E A D   R I S I N G   3   –   M O D E L   I M P O R T E R
+        D E A D   R I S I N G   3   -   M O D E L   I M P O R T E R
   ======================================================================
   
   Maxscript:  [PC] Dead Rising 3
@@ -16,489 +16,44 @@
   History:
     2025-04-27
       - added read for vertex description
-      
+      - added support for uvs, normals, weights
+      - added support for 3ds max 8 (2006)
+	  - added zlib decompressor
     
+  ======================================================================
+  TODO:
+    Add exporter function in respect to preserving existing data.
+      - Maintain structural integrity
+		- No modification of unrelated meshes.
+      - Accurately map components
+	    - Positions, UVs, normals, and weights are preserved.
+      - Facilitate safe reimport
+	    - Exported files align with the original game's stride, scaling, and layout rules.
   ====================================================================== */
 gc()
 clearListener()
 try(DestroyDialog dr3_util)catch(dr3_util)
-rollout dr3_util "dr3_util" (
-	
-	struct bytestream_c (
-		fullpath = "",
-		filename = "",
-		name = "",
-		path = "",
-		type = "",
-		size = 0,
-		swapBytes = false,
-		bstream = undefined,
-		
-		coverageRanges = #(),
-
-		fn open file mode:"rb" = (
-			local isOpened = false
-			if file != undefined and file != "" do (
-				bstream = try(fopen file mode)catch(undefined)
-				if bstream != undefined then (
-					fseek bstream 0 #seek_end
-					size = ftell bstream
-					fseek bstream 0 #seek_set
-					fullpath = file
-					filename = filenameFromPath file
-					name = getFilenameFile filename
-					path = getFilenamePath file
-					type = getFilenameType filename
-					isOpened = true
-					) else (format "Error:\n\tFailed to Open {%}\n" file)
-				)
-			isOpened
-			),
-		fn close = (
-			size = 0
-			fullpath = filename = name = path = type = ""
-			if bstream != undefined do (fclose bstream)
-			),
-		fn good = (bstream != undefined),
-		fn setEndian endian = (if endian == #little then swapBytes = false else if endian == #big then swapBytes = true),
-		fn isBigEndian = (swapBytes),
-		fn isLittleEndian = (not swapBytes),
-		fn littleEndian = (swapBytes = false),
-		fn bigEndian = (swapBytes = true),
-		fn seek offset seekdir:#seek_set = (fseek bstream offset seekdir),
-		fn align byte_alignment position:undefined = (
-			if position == undefined do (position = ftell bstream)
-			fseek bstream (mod (byte_alignment-(mod position byte_alignment)) byte_alignment) #seek_cur
-			((ftell bstream) - position)
-			),
-		fn write_padding byte_alignment position:undefined = (
-			if position == undefined do (position = ftell bstream)
-			local p = align byte_alignment position:position
-			if p > 0 do (
-				local i = 1
-				for i = 1 to p do (writeByte bstream 0)
-				)
-			),
-		fn tell = (ftell bstream),
-		fn print_tell tell_name = (
-			local u = #("A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z")
-			local l = #("a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z")
-			local b = 0, s = 1, p = (tell() as integer), n = bit.IntAsHex(p)
-			for s = 1 to n.count do (if (b = findItem l n[s]) > 0 do (n[s] = u[b]))
-			format "%: \t@ 0x% \t\tdec: %\n" tell_name (substring (n = "00000000" + n) (n.count - 7) (n.count + 6)) p
-			),
-		fn eos = (not (ftell bstream < size)),
-
-		fn unsigned_to_signed &n nbits = (
-			-- unsigned_to_signed 0x80 8 = -128
-			if bit.get n nbits do (
-				n = n - (pow 2 nbits)
-				)
-			),
-
-		fn mergeIntervals intervals = (
-			if intervals.count == 0 then intervals else (
-				local sorted = copy intervals #nomap
-				-- Use qsort with a custom comparator that sorts by the first element of each interval.
-				qsort sorted (
-					fn compareFN a b = (
-						if a[1] < b[1] then -1 else if a[1] > b[1] then 1 else 0
-						)
-					)
-				
-				local merged = #()
-				local current = sorted[1]
-				for i = 2 to sorted.count do (
-					local interval = sorted[i]
-					if interval[1] <= current[2] then (
-						-- Overlap: extend current interval if needed.
-						current[2] = (if interval[2] > current[2] then interval[2] else current[2])
-						)
-					else (
-						append merged current
-						current = interval
-						)
-					)
-				append merged current
-				merged
-				)
-			),
-		
-		fn recordCoverage start length = (
-			if length > 0 then (
-				local newInterval = #(start, start + length) -- using an array [start, end]
-				append coverageRanges newInterval
-				coverageRanges = mergeIntervals coverageRanges
-				)
-			),
-		
-		fn reportUncovered = (
-			local covered = mergeIntervals coverageRanges
-			local gaps = #()
-			local pos = 0
-			for interval in covered do (
-				if interval[1] > pos then (
-					append gaps [pos, interval[1]]
-					)
-				pos = interval[2]
-				)
-			if pos < size then append gaps [pos, size]
-			gaps  -- returns an array of intervals [start, end] that were not read.
-			),
-
-		fn read_ubyte = (
-			local startPos = ftell bstream
-			local val = readbyte bstream #unsigned
-			local endPos = ftell bstream
-			recordCoverage startPos (endPos - startPos)
-			val
-			),
-
-		fn read_byte = (
-			local startPos = ftell bstream
-			local val = readbyte bstream #signed
-			local endPos = ftell bstream
-			recordCoverage startPos (endPos - startPos)
-			val
-			),
-
-		fn read_ushort = (
-			local startPos = ftell bstream
-			local val = readshort bstream #unsigned
-			if swapBytes do (val = bit.swapBytes val 1 2)
-			local endPos = ftell bstream
-			recordCoverage startPos (endPos - startPos)
-			val
-			),
-
-		fn read_short = (
-			local val = read_ushort()  -- read_ushort already records coverage
-			unsigned_to_signed &val 16
-			val
-			),
-
-		fn read_ulong = (
-			local startPos = ftell bstream
-			local val = readlong bstream #unsigned
-			if swapBytes do (val = bit.swapBytes (bit.swapBytes val 1 4) 2 3)
-			local endPos = ftell bstream
-			recordCoverage startPos (endPos - startPos)
-			val
-			),
-
-		fn read_long = (
-			local val = read_ulong()  -- read_ulong already records coverage
-			unsigned_to_signed &val 32
-			val
-			),
-
-		fn read_ulonglong = (
-			local startPos = ftell bstream
-			local val = 0L
-			if not swapBytes then (
-				val += readlonglong bstream #unsigned
-				)
-			else (
-				val += (
-					((readbyte bstream #unsigned) * 0x0100000000000000) + \
-					((readbyte bstream #unsigned) * 0x0001000000000000) + \
-					((readbyte bstream #unsigned) * 0x0000010000000000) + \
-					((readbyte bstream #unsigned) * 0x0000000100000000) + \
-					((readbyte bstream #unsigned) * 0x0000000001000000) + \
-					((readbyte bstream #unsigned) * 0x0000000000010000) + \
-					((readbyte bstream #unsigned) * 0x0000000000000100) + \
-					((readbyte bstream #unsigned) * 0x0000000000000001)
-					)
-				)
-			local endPos = ftell bstream
-			recordCoverage startPos (endPos - startPos)
-			val
-			),
-
-		fn read_longlong = (
-			local startPos = ftell bstream
-			local val = 0L
-			if not swapBytes then (
-				val += readlonglong bstream #signed
-				)
-			else (
-				val += (
-					((readbyte bstream #unsigned) * 0x0100000000000000) + \
-					((readbyte bstream #unsigned) * 0x0001000000000000) + \
-					((readbyte bstream #unsigned) * 0x0000010000000000) + \
-					((readbyte bstream #unsigned) * 0x0000000100000000) + \
-					((readbyte bstream #unsigned) * 0x0000000001000000) + \
-					((readbyte bstream #unsigned) * 0x0000000000010000) + \
-					((readbyte bstream #unsigned) * 0x0000000000000100) + \
-					((readbyte bstream #unsigned) * 0x0000000000000001)
-					)
-				unsigned_to_signed &val 64
-				)
-			local endPos = ftell bstream
-			recordCoverage startPos (endPos - startPos)
-			val
-			),
-
-		fn read_half = (
-			local startPos = ftell bstream
-			local inputAsInt = readshort bstream #unsigned
-			if swapBytes do (inputAsInt = bit.swapBytes inputAsInt 1 2)
-			local sign = (bit.and (bit.shift inputAsInt -15) 0x00000001)
-			local exponent = (bit.shift (bit.and inputAsInt 0x7C00) -10) as integer + 112
-			local fraction = (bit.and inputAsInt 0x03FF)
-			local val = bit.intasfloat (
-				(bit.or (bit.or (bit.shift fraction 13) (bit.shift exponent 23)) (bit.shift sign 31))
-				)
-			local endPos = ftell bstream
-			recordCoverage startPos (endPos - startPos)
-			val
-			),
-
-		fn read_float = (
-			local startPos = ftell bstream
-			local val
-			if swapBytes then (
-				val = bit.intAsFloat (bit.swapBytes (bit.swapBytes (readlong bstream #unsigned) 1 4) 2 3)
-				)
-			else (
-				val = readfloat bstream
-				)
-			local endPos = ftell bstream
-			recordCoverage startPos (endPos - startPos)
-			val
-			),
-
-		fn read_double = (
-			local startPos = ftell bstream
-			local i = 1, ma = 0, mb = 0, mc = 0, ex = 0, bits = 11, sign = 0, expo = 0, mant = 0.0, bias = 0
-			if swapBytes then (
-				mc = readshort bstream #unsigned
-				mb = readshort bstream #unsigned
-				ma = readshort bstream #unsigned
-				ex = readshort bstream #unsigned
-				)
-			else (
-				ex = bit.swapBytes (readshort bstream #unsigned) 1 2
-				ma = bit.swapBytes (readshort bstream #unsigned) 1 2
-				mb = bit.swapBytes (readshort bstream #unsigned) 1 2
-				mc = bit.swapBytes (readshort bstream #unsigned) 1 2
-				)
-			sign = if bit.get ex 16 then 1 else 0
-			bias = (pow 2 (bits - 1)) - 1
-			for i = 1 to bits do (expo = bit.set expo (bits - (i - 1)) (bit.get ex (16 - i)))
-			for i = 1 to 4 do (mant += (if bit.get ex (4 - (i - 1)) then 1 else 0) * (pow 2 - i))
-			for i = 1 to 16 do (mant += (if bit.get ma (16 - (i - 1)) then 1 else 0) * (pow 2 - (i + 4)))
-			for i = 1 to 16 do (mant += (if bit.get mb (16 - (i - 1)) then 1 else 0) * (pow 2 - (i + 20)))
-			for i = 1 to 16 do (mant += (if bit.get mc (16 - (i - 1)) then 1 else 0) * (pow 2 - (i + 36)))
-			local val = (pow (-1) sign) * (1 + mant) * (pow 2 (expo - bias))
-			local endPos = ftell bstream
-			recordCoverage startPos (endPos - startPos)
-			val
-			),
-
-		fn read_string length:-1 = (
-			local startPos = ftell bstream
-			local i = 1, s = "", b = 1
-			if length == -1 then (
-				s = readString bstream
-				)
-			else (
-				for i = 1 to length do (
-					b = readbyte bstream #unsigned
-					if b > 0 then (
-						s += bit.IntAsChar b
-						)
-					else (
-						fseek bstream (length - i) #seek_cur
-						exit
-						)
-					)
-				)
-			local endPos = ftell bstream
-			recordCoverage startPos (endPos - startPos)
-			s
-			),
-
-		fn read_wstring length:0 = (
-			local startPos = ftell bstream
-			local i = 1, s = "", b = 1
-			if length == 0 then (
-				do (
-					b = read_ushort()
-					if b > 0 do (s += bit.IntAsChar b)
-					) while i > 0
-				)
-			else (
-				for i = 1 to (length / 2) do (
-					b = read_ushort()
-					if b > 0 then (
-						s += bit.IntAsChar b
-						)
-					else (
-						fseek bstream (length - (i * 2)) #seek_cur
-						exit
-						)
-					)
-				)
-			local endPos = ftell bstream
-			recordCoverage startPos (endPos - startPos)
-			s
-			),
-
-		fn write_string str length:0 = (
-			local i = 1
-			if length == 0 then (
-				writestring bstream str
-				)
-			else (
-				for i = 1 to length do (
-					if i <= str.count and i != length then (
-						writebyte bstream (bit.CharAsInt str[i]) #unsigned
-						)
-					else (
-						writebyte bstream 0
-						)
-					)
-				)
-			),
-		fn write_ubyte val = (
-			writebyte bstream val #unsigned
-			),
-		fn write_byte val = (
-			writebyte bstream val #signed
-			),
-		fn write_ushort val = (
-			if swapBytes do (val = bit.swapBytes val 1 2)
-			writeshort bstream val #unsigned
-			),
-		fn write_short val = (
-			if swapBytes do (val = bit.swapBytes val 1 2)
-			writeshort bstream val #signed
-			),
-		fn write_ulong val = (
-			if swapBytes do (val = bit.swapBytes (bit.swapBytes val 1 4) 2 3)
-			writelong bstream val #unsigned
-			),
-		fn write_long val = (
-			if swapBytes do (val = bit.swapBytes (bit.swapBytes val 1 4) 2 3)
-			writelong bstream val #signed
-			),
-		fn write_ulonglong num = (
-			local val = 0L + num
-			if not swapBytes then (
-				writelonglong bstream val #unsigned
-				)
-			else (
-				writebyte bstream (bit.shift (bit.and val 0xFF00000000000000L) -0x38) #unsigned
-				writebyte bstream (bit.shift (bit.and val 0x00FF000000000000L) -0x30) #unsigned
-				writebyte bstream (bit.shift (bit.and val 0x0000FF0000000000L) -0x28) #unsigned
-				writebyte bstream (bit.shift (bit.and val 0x000000FF00000000L) -0x20) #unsigned
-				writebyte bstream (bit.shift (bit.and val 0x00000000FF000000L) -0x18) #unsigned
-				writebyte bstream (bit.shift (bit.and val 0x0000000000FF0000L) -0x10) #unsigned
-				writebyte bstream (bit.shift (bit.and val 0x000000000000FF00L) -0x08) #unsigned
-				writebyte bstream (            bit.and val 0x00000000000000FFL          ) #unsigned
-				)
-			),
-		fn write_longlong num = (
-			local val = 0L + num
-			if not swapBytes then (
-				writelonglong bstream val #signed
-				)
-			else (
-				writebyte bstream (bit.shift (bit.and val 0xFF00000000000000L) -0x38) #unsigned
-				writebyte bstream (bit.shift (bit.and val 0x00FF000000000000L) -0x30) #unsigned
-				writebyte bstream (bit.shift (bit.and val 0x0000FF0000000000L) -0x28) #unsigned
-				writebyte bstream (bit.shift (bit.and val 0x000000FF00000000L) -0x20) #unsigned
-				writebyte bstream (bit.shift (bit.and val 0x00000000FF000000L) -0x18) #unsigned
-				writebyte bstream (bit.shift (bit.and val 0x0000000000FF0000L) -0x10) #unsigned
-				writebyte bstream (bit.shift (bit.and val 0x000000000000FF00L) -0x08) #unsigned
-				writebyte bstream (            bit.and val 0x00000000000000FFL          ) #unsigned
-				)
-			),
-		fn write_float val = (
-			if swapBytes then (
-				writelong bstream (bit.swapBytes (bit.swapBytes (bit.floatAsInt val) 1 4) 2 3) #unsigned
-				)
-			else (
-				writefloat bstream val
-				)
-			),
-		fn write_half val = (
-			-- "https://galfar.vevb.net/wp/2011/16bit-half-float-in-pascaldelphi/"
-			local Sign = 0
-			local exponent=0
-			local Mantissa=0
-			local Result = 0
-			local Src = bit.floatAsInt (val as float)
-			-- Extract sign, exponent, and mantissa from Single number
-			Sign = bit.shift Src -31
-			exponent = (bit.shift (bit.and Src 0x7F800000) -23) - 127 + 15
-			Mantissa = bit.and Src 0x007FFFFF
-			if exponent >= 0 and exponent <= 30 then (
-				-- Simple case - round the significand and combine it with the sign and exponent
-				Result = bit.or (bit.shift Sign 15) (bit.or (bit.shift exponent 10) (bit.shift (Mantissa + 0x00001000) -13))
-				)
-			else (
-				if Src == 0 then (
-					-- Input float is zero - return zero
-					Result = 0
-					)
-				else (
-					-- Difficult case - lengthy conversion
-					if exponent <= 0 then (
-						if exponent <= -10 then (         
-							-- Input float's value is less than HalfMin, return zero
-							Result = 0
-							)
-						else (
-							-- Float is a normalized Single whose magnitude is less than HalfNormMin.  
-							-- We convert it to denormalized half.
-							Mantissa = bit.shift (bit.or Mantissa 0x00800000) -(1 - exponent)
-							-- Round to nearest
-							if (bit.or Mantissa 0x00001000) >= 0 then
-								Mantissa = Mantissa + 0x00002000
-							-- Assemble Sign and Mantissa (exponent is zero to get denormalized number)
-							Result = bit.or (bit.shift Sign 15) (bit.shift Mantissa -13)
-							)
-						)
-					else (
-						if exponent = 255 - 127 + 15 then (
-							if Mantissa = 0 then (
-								-- Input float is infinity, create infinity half with original sign
-								Result = (bit.shift Sign 15) or 0x7C00
-								)
-							else (
-								-- Input float is NaN, create half NaN with original sign and mantissa
-								Result = bit.or (bit.shift Sign 15) (bit.or 0x7C00 (bit.shift Mantissa -13))
-								)
-							)
-						else (
-							-- exponent > 0 so input float is normalized Single
-							-- Round to nearest
-							if (bit.and Mantissa 0x00001000) >= 0 then (
-								Mantissa = Mantissa + 0x00002000
-								if (bit.and Mantissa 0x00800000) >= 0 then (
-									Mantissa = 0
-									exponent = exponent + 1
-									)
-								)
-							if exponent >= 30 then (
-								-- exponent overflow - return infinity half
-								Result = (bit.shift Sign 15) or 0x7C00
-								)
-							else (
-								-- Assemble normalized half
-								Result = bit.or (bit.shift Sign 15) (bit.or (bit.shift exponent 10) (bit.shift Mantissa -13))
-								)
-							)
-						)
-					)
-				)
-			if swapBytes do (Result = bit.swapBytes Result 1 2)
-			writeshort bstream Result #unsigned
-			)
+rollout dr3_util "Dead Rising 3" (
+	group "Import" (
+		button btn_import "Open" width:120 height:35
+		checkBox chk_clear "Clear Scene" align:#left checked:true
+		checkBox chk_normals "Normals" align:#left checked:false
+		checkBox chk_weights "Weights" align:#left checked:false
 		)
-
+	group "Manage" (
+		button btn_unpack "Unpack" width:120 height:35
+		)
+	group "About" (
+		label lb3 "Written By:" align:#left
+		label lb4 "    mariokart64n" align:#left
+		hyperLink lb5 "    mariokart64n@gmail.com" address:"mailto:mariokart64n@gmail.com"
+		label lb6 "Donate:" align:#left across:2
+		hyperLink lb7 "    Paypal" address:"https://www.paypal.com/cgi-bin/webscr?cmd=_donations&business=coreynguyen%40gmail%2ecom&item_name=maxscript%20work&no_shipping=0&no_note=1&tax=0&currency_code=CAD&lc=US&bn=PP%2dDonationsBF&charset=UTF%2d8"
+		)
+	label lb3b "Release:" align:#left across:2
+	label lb3c "April 27, 2025" align:#right
+	
+	
 	struct bytestream (
 		fullpath = "",
 		filename = "",
@@ -593,7 +148,7 @@ rollout dr3_util "dr3_util" (
 			val
 			),
 		fn read_ulonglong = (
-			local val = 0L
+			local val = 0
 			if not swapBytes then (
 				val += readlonglong bstream #unsigned
 				)
@@ -612,7 +167,7 @@ rollout dr3_util "dr3_util" (
 			val
 			),
 		fn read_longlong = (
-			local val = 0L
+			local val = 0
 			if not swapBytes then (
 				val += readlonglong bstream #signed
 				)
@@ -751,35 +306,35 @@ rollout dr3_util "dr3_util" (
 			writelong bstream val #signed
 			),
 		fn write_ulonglong num = (
-			local val = 0L + num
+			local val = 0 + num
 			if not swapBytes then (
 				writelonglong bstream val #unsigned
 				)
 			else (
-				writebyte bstream (bit.shift (bit.and val 0xFF00000000000000L) -0x38) #unsigned
-				writebyte bstream (bit.shift (bit.and val 0x00FF000000000000L) -0x30) #unsigned
-				writebyte bstream (bit.shift (bit.and val 0x0000FF0000000000L) -0x28) #unsigned
-				writebyte bstream (bit.shift (bit.and val 0x000000FF00000000L) -0x20) #unsigned
-				writebyte bstream (bit.shift (bit.and val 0x00000000FF000000L) -0x18) #unsigned
-				writebyte bstream (bit.shift (bit.and val 0x0000000000FF0000L) -0x10) #unsigned
-				writebyte bstream (bit.shift (bit.and val 0x000000000000FF00L) -0x08) #unsigned
-				writebyte bstream (            bit.and val 0x00000000000000FFL          ) #unsigned
+				writebyte bstream (bit.shift (bit.and val 0xFF00000000000000) -0x38) #unsigned
+				writebyte bstream (bit.shift (bit.and val 0x00FF000000000000) -0x30) #unsigned
+				writebyte bstream (bit.shift (bit.and val 0x0000FF0000000000) -0x28) #unsigned
+				writebyte bstream (bit.shift (bit.and val 0x000000FF00000000) -0x20) #unsigned
+				writebyte bstream (bit.shift (bit.and val 0x00000000FF000000) -0x18) #unsigned
+				writebyte bstream (bit.shift (bit.and val 0x0000000000FF0000) -0x10) #unsigned
+				writebyte bstream (bit.shift (bit.and val 0x000000000000FF00) -0x08) #unsigned
+				writebyte bstream (            bit.and val 0x00000000000000FF          ) #unsigned
 				)
 			),
 		fn write_longlong num = (
-			local val = 0L + num
+			local val = 0 + num
 			if not swapBytes then (
 				writelonglong bstream val #signed
 				)
 			else (
-				writebyte bstream (bit.shift (bit.and val 0xFF00000000000000L) -0x38) #unsigned
-				writebyte bstream (bit.shift (bit.and val 0x00FF000000000000L) -0x30) #unsigned
-				writebyte bstream (bit.shift (bit.and val 0x0000FF0000000000L) -0x28) #unsigned
-				writebyte bstream (bit.shift (bit.and val 0x000000FF00000000L) -0x20) #unsigned
-				writebyte bstream (bit.shift (bit.and val 0x00000000FF000000L) -0x18) #unsigned
-				writebyte bstream (bit.shift (bit.and val 0x0000000000FF0000L) -0x10) #unsigned
-				writebyte bstream (bit.shift (bit.and val 0x000000000000FF00L) -0x08) #unsigned
-				writebyte bstream (            bit.and val 0x00000000000000FFL          ) #unsigned
+				writebyte bstream (bit.shift (bit.and val 0xFF00000000000000) -0x38) #unsigned
+				writebyte bstream (bit.shift (bit.and val 0x00FF000000000000) -0x30) #unsigned
+				writebyte bstream (bit.shift (bit.and val 0x0000FF0000000000) -0x28) #unsigned
+				writebyte bstream (bit.shift (bit.and val 0x000000FF00000000) -0x20) #unsigned
+				writebyte bstream (bit.shift (bit.and val 0x00000000FF000000) -0x18) #unsigned
+				writebyte bstream (bit.shift (bit.and val 0x0000000000FF0000) -0x10) #unsigned
+				writebyte bstream (bit.shift (bit.and val 0x000000000000FF00) -0x08) #unsigned
+				writebyte bstream (            bit.and val 0x00000000000000FF          ) #unsigned
 				)
 			),
 		fn write_float val = (
@@ -866,340 +421,717 @@ rollout dr3_util "dr3_util" (
 			)
 		)
 	
-	struct byteArray (
-		
-		filename = "",
-		size = 0,
-		data = #(),
-		
-		fn readFromStream f fsize:0 = (
-			if (f == undefined) then (
-				format "readFromStream: invalid file handle\n"
-				size = 0
-				data = #()
-				)
-			else (
-				local pos = ftell f
-				if fsize == 0 do (
-					fseek f 0 #seek_end
-					fsize = ftell f - pos
-					fseek f pos #seek_set
-					)
-				size = fsize
-				local q = size/4 as integer
-				local r = size - q*4
-				data[q+r] = 0
-				local i
-				for i = 1 to q do data[i] = readLong f
-				for i = 1 to r do data[q+i] = readByte f
+	struct zlibCodec (
+		src      = #(),
+		srcSize = 0,
+		srcPos  = 0,
+		bitBuf   = 0,
+		bitCnt  = 0,
+		dst      = #(),
+		bytesOut= 0,
+		adler    = 1,
+
+		fn bRead arr idx = (
+			if idx < 0 then throw "Invalid distance in back-reference"
+			local w = (idx/4) as Integer + 1
+			if w > arr.count then 0
+			else bit.and (bit.shift arr[w] (-8*(mod idx 4))) 0xFF
+			),
+
+		fn refillBits n = (
+			while bitCnt < n do (
+				if srcPos >= srcSize do throw "Unexpected end-of-stream"
+				bitBuf += bit.shift (bRead src srcPos) bitCnt
+				srcPos += 1
+				bitCnt += 8
 				)
 			),
 
-		fn writeToStream s = (
-			if (s == undefined) then (
-				format "writeToStream: invalid file handle\n"
-				)
-			else (
-				local q = size/4 as integer
-				local r = size - q*4
-				local i
-				for i = 1 to q do writeLong s data[i]
-				for i = 1 to r do writeByte s data[q+i]
-				)
+		fn getBits n = (
+			refillBits n
+			local v = bit.and bitBuf ((bit.shift 1 n)-1)
+			bitBuf = bit.shift bitBuf -n
+			bitCnt -= n
+			v
 			),
 
-		fn read filePath = (
-			local f = fopen filePath "rbS"
-			if (f == undefined) then (
-				format "Error: cannot open %\n" filePath
-				false
-				)
-			else (
-				readFromStream f fsize:(getFileSize filePath)
-				fclose f
-				true
-				)
+		fn putByte b = (
+			local wi  = (bytesOut/4) as Integer + 1
+			local ofs = mod bytesOut 4
+			if wi > dst.count do append dst 0
+			local w    = dst[wi]
+			local msk = bit.not (bit.shift 0xFF (ofs*8))
+			w = bit.and w msk
+			w = bit.or  w (bit.shift b (ofs*8))
+			dst[wi] = w
+			bytesOut += 1
 			),
 
-		fn write filePath = (
-			if (data.count == 0) then (
-				format "Error: nothing to write\n"
-				false
-				)
-			else (
-				local s = fopen filePath "wbS"
-				if (s == undefined) then (
-					format "Error: cannot create %\n" filePath
-					false
-					)
-				else (
-					writeToStream s
-					fclose s
-					true
-					)
-				)
+		fn adlerAdd b = (
+			local s1 = bit.and adler 0xFFFF
+			local s2 = bit.shift adler -16
+			s1 = mod (s1 + b) 65521
+			s2 = mod (s2 + s1) 65521
+			adler = bit.or s1 (bit.shift s2 16)
 			),
 
-		bitPos  = 0,
-		bytePos = 1,
-
-		fn _bitReset = (
-			bitPos  = 0
-			bytePos = 1
+		fn revBits val len = (
+			local r = 0
+			for i = 1 to len do (
+				r = bit.shift r 1
+				r = bit.or r (bit.and val 1)
+				val = bit.shift val -1
+				)
+			r
 			),
 
-		fn _bitRead n = (
-			local val   = 0
-			local shift = 0
-			local need  = n
-			while need > 0 do (
-				if (bytePos > size) then (
-					need = 0
-					format "inflate: ran out of input\n"
-					)
-				else (
-					local cur     = data[bytePos]
-					local avail   = 8 - bitPos
-					local take    = avail
-					if (need < avail) then take = need
-					local mask    = (bit.shift 1 take) - 1
-					local part    = (bit.shift cur bitPos) band mask
-					val  = val + (bit.shift part shift)
-					need = need - take
-					shift= shift + take
-					bitPos = bitPos + take
-					if (bitPos == 8) then (
-						bitPos  = 0
-						bytePos = bytePos + 1
-						)
-					)
-				)
-			val
-			),
+		fn makeTable lens maxLen = (
+			/* 1) count codes of each length */
+			local blCount  = for i = 1 to maxLen collect 0
+			for l in lens where l > 0 do blCount[l] += 1
 
-		fn _bitAlignByte = (
-			if (bitPos != 0) do (
-				bitPos  = 0
-				bytePos = bytePos + 1
+			/* 2) compute the first code for each length */
+			local nextCode = for i = 1 to maxLen collect 0
+			local code     = 0
+			local prevCnt  = 0
+			for bits = 1 to maxLen do (
+				code = bit.shift (code + prevCnt) 1
+				nextCode[bits] = code
+				prevCnt = blCount[bits]      -- update after using it
 				)
-			),
-		
-		litTable = #(),
-		litMax = 0,
-		distTable= #(),
-		distMax= 0,
 
-		fn _buildHuff lens = (
-			local maxBits = 0
-			local i
-			for i in lens where i > maxBits do maxBits = i
-			local blCount = for i = 1 to maxBits collect 0
-			for i in lens where i != 0 do blCount[i] = blCount[i] + 1
-			local nextCode = #(0)
-			for i = 1 to maxBits do (
-				local prev = nextCode[i]
-				local nxt  = bit.shift (prev + blCount[i-1]) 1
-				append nextCode nxt
-				)
-			local map = #()
+			/* 3) assign reversed codes to symbols */
+			local tbl = #()
 			for i = 1 to lens.count do (
 				local ln = lens[i]
-				if ln != 0 do (
-					local code = nextCode[ln]
-					nextCode[ln] = code + 1
-					local key  = bit.shift code (16 - ln)
-					local step = bit.shift 1 (16 - ln)
-					local k
-					for k = key to 0xFFFF by step do map[k+1] = i-1
-					)
-				)
-			#(map, maxBits)
-			),
-
-		fn _initFixedHuffman = (
-			if litTable.count == 0 do (
-				local litLens = for i = 1 to 288 collect 0
-				local i
-				for i = 1   to 144 do litLens[i]   = 8
-				for i = 145 to 256 do litLens[i]   = 9
-				for i = 257 to 280 do litLens[i]   = 7
-				for i = 281 to 288 do litLens[i]   = 8
-				local distLens = for i = 1 to 32 collect 5
-				local res      = _buildHuff litLens
-				litTable = res[1]
-				litMax = res[2]
-				res = _buildHuff distLens
-				distTable = res[1]
-				distMax = res[2]
-				)
-			),
-
-		fn _huffRead tbl maxBits = (
-			local code = 0
-			local bits = 0
-			local result = -1
-			local searching = true
-			while searching do (
-				local bit = _bitRead 1
-				code = code + bit.shift bit bits
-				bits = bits + 1
-				if bits > maxBits then (
-					searching = false
+				if ln > 0 then (
+					local fwd = nextCode[ln]
+					tbl[i]    = revBits fwd ln   -- store reversed LSB-first code
+					nextCode[ln] = fwd + 1
 					)
 				else (
-					local idx = bit.shift code (16 - bits) + 1
-					if idx <= tbl.count then (
-						local sym = tbl[idx]
-						if sym != undefined do (
-							result    = sym
-							searching = false
+					tbl[i] = undefined
+					)
+				)
+			tbl
+			),
+		
+		fn decodeSym tbl lens maxLen = (
+			local code   = 0
+			local symbol = -1          -- -1 means "not found yet"
+
+			for len = 1 to maxLen while symbol == -1 do (
+				/* pull the next bit (LSB-first) and extend the code */
+				code += bit.shift (getBits 1) (len - 1)
+
+				/* scan symbols that have exactly this length */
+				for i = 1 to lens.count where lens[i] == len and tbl[i] == code do (
+					symbol = i - 1      -- store 0-based result
+					exit                -- break inner loop
+					)
+				)
+
+			if symbol == -1 do throw "Bad Huffman code"
+			symbol                          -- implicit return
+			),
+		
+		fn inflateBlock = (
+			local isFinal = getBits 1
+			local btype   = getBits 2
+
+			if btype == 0 then (                     -- stored
+				bitCnt = 0; bitBuf = 0
+				local len  = (getBits 16)
+				local nlen = (getBits 16)           -- ignored (integrity)
+				for i=1 to len do (
+					local b = bRead src srcPos
+					putByte b; adlerAdd b
+					srcPos += 1
+					)
+				)
+			else (
+				local litLenLen=#(); local distLen=#()
+				if btype == 1 then (                 -- fixed
+					litLenLen.count=288
+					for i=1   to 144 do litLenLen[i]=8
+					for i=145 to 256 do litLenLen[i]=9
+					for i=257 to 280 do litLenLen[i]=7
+					for i=281 to 288 do litLenLen[i]=8
+					distLen.count=32; for i=1 to 32 do distLen[i]=5
+					)
+				else if btype == 2 then (            -- dynamic
+					local hlit  = getBits 5 + 257
+					local hdist = getBits 5 +   1
+					local hclen = getBits 4 +   4
+
+					local clOrder=#(16,17,18,0,8,7,9,6,10,5,11,4,12,3,13,2,14,1,15)
+					local cl=#()
+					cl.count=19
+					for i=1 to hclen do cl[clOrder[i]+1] = getBits 3
+					local clTbl = makeTable cl 7
+					local lens=#()
+					while lens.count < (hlit+hdist) do (
+						local sym = decodeSym clTbl cl 7
+						if sym < 16 then (
+							append lens sym
+							)
+						else if sym == 16 then (
+							local rep = getBits 2 + 3
+							local val = lens[lens.count]
+							for j=1 to rep do append lens val
+							)
+						else if sym == 17 then (
+							local rep = getBits 3 + 3
+							for j=1 to rep do append lens 0
+							)
+						else (
+							local rep = getBits 7 + 11
+							for j=1 to rep do append lens 0
 							)
 						)
+					litLenLen = for i=1 to hlit  collect lens[i]
+					distLen   = for i=1 to hdist collect lens[hlit+i]
+					)
+				else throw "Unsupported btype"
+				
+				local litTbl = makeTable litLenLen 15
+				local dstTbl = makeTable distLen   15
+
+				local done = false
+				while not done do (
+					local sym = decodeSym litTbl litLenLen 15
+					if sym < 256 then (
+						putByte sym
+						adlerAdd sym
+						)
+					else if sym == 256 then (
+						done = true
+						)
+					else (          -- length / distance pair
+						local lenBase=#(3,4,5,6,7,8,9,10,11,13,15,17,19,23,27,31,
+										35,43,51,59,67,83,99,115,131,163,195,227,258)
+						local lenExtra=#(0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,
+										 4,4,4,4,5,5,5,5,0)
+						local idx = sym-257+1
+						local length = lenBase[idx]
+						local extra  = lenExtra[idx]
+						if extra>0 do length += getBits extra
+
+						local distSym  = decodeSym dstTbl distLen 15
+						local distBase = #(1,2,3,4,5,7,9,13,17,25,33,49,65,97,129,
+										   193,257,385,513,769,1025,1537,2049,3073,
+										   4097,6145,8193,12289,16385,24577)
+						local distExtra=#(0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,
+										   7,7,8,8,9,9,10,10,11,11,12,12,13,13)
+						local dist = distBase[distSym+1]
+						extra = distExtra[distSym+1]
+						if extra>0 do dist += getBits extra
+						
+						local srcIdx = bytesOut - dist
+						for k=1 to length do (
+							local b = bRead dst srcIdx
+							putByte b
+							adlerAdd b
+							srcIdx += 1
+							)
+						)
+					)
+				)
+			isFinal
+			),
+
+		fn inflate packed = (
+			/* reset state */
+			src      = packed
+			srcSize  = packed.count * 4
+			srcPos   = 2         -- skip CMF/FLG
+			bitBuf   = 0
+			bitCnt   = 0
+			dst      = #()
+			bytesOut = 0
+			adler    = 1
+			
+			/* drive the blocks until we get a non-zero "isFinal" */
+			local isFinal = 0
+			while isFinal == 0 do isFinal = inflateBlock()
+			
+			/* read the 4-byte Adler-32 trailer (big-endian) ---------------- */
+			local b0 = bRead src srcPos           -- MSB
+			local b1 = bRead src (srcPos + 1)
+			local b2 = bRead src (srcPos + 2)
+			local b3 = bRead src (srcPos + 3)     -- LSB
+			
+			local adlFile = bit.or (bit.shift b0 24) \
+								   (bit.or (bit.shift b1 16) \
+										   (bit.or (bit.shift b2  8) b3))
+			
+			/* normalise both to 32-bit unsigned before compare */
+			local msk   = 0xFFFFFFFF
+			if (bit.and adler msk) != (bit.and adlFile msk) do (
+				throw "Bad Adler-32 checksum"
+				)
+			dst
+			),
+
+
+		/* ------------ public entry: deflate (stored blocks) -------------- */
+		fn deflate packed = (
+			src      = packed
+			srcSize  = packed.count*4
+			srcPos   = 0
+			dst      = #()
+			bytesOut = 0
+			adler    = 1
+
+			append dst 0x78            -- CMF  (Deflate + 32 KiB window)
+			append dst 0x9C            -- FLG  (default flags, fcheck ok)
+
+			local remaining = srcSize
+			while remaining > 0 do (
+				local blk = (remaining<65535) and remaining or 65535
+				/* header for a stored block -------------------------------- */
+				append dst ((remaining<=65535) and 1 or 0)  -- BFINAL
+				append dst 0                                -- 00 = stored
+				append dst (blk mod 256) ; append dst (blk/256)
+				append dst ((bit.not blk) mod 256)
+				append dst ((bit.not blk)/256)
+				/* copy bytes ---------------------------------------------- */
+				for i=1 to blk do (
+					local b = bRead src srcPos
+					append dst b ; adlerAdd b
+					srcPos += 1
+					)
+				remaining -= blk
+				)
+
+			/* Adler-32 trailer -------------------------------------------- */
+			local s1 = bit.and adler 0xFFFF
+			local s2 = bit.shift adler -16
+			append dst (s2/256) ; append dst (mod s2 256)
+			append dst (s1/256) ; append dst (mod s1 256)
+
+			dst
+			)
+		)
+
+	struct byteArray (
+		/* --------------------------------------------------
+		   raw storage
+		   -------------------------------------------------- */
+		size      = 0,        -- file size in *bytes*
+		data      = #(),      -- packed:   1-based!
+		pos       = 0,        -- current cursor (0-based byte offset)
+		swapBytes = false,    -- FALSE = little-endian (PC default)
+
+		/* --------------------------------------------------
+		   endian helpers
+		   -------------------------------------------------- */
+		fn setEndian endian = (swapBytes = (endian == #big)),
+		fn isBigEndian  = (swapBytes),
+		fn isLittleEndian = (not swapBytes),
+		fn littleEndian = (swapBytes = false),
+		fn bigEndian    = (swapBytes = true),
+		fn uncompress = (
+			if classof zlibCodec != UndefinedClass do (
+				local z = zlibCodec()
+				data = z.inflate data
+				size = z.bytesOut
+				if pos > size do pos = size
+				)
+			),
+		fn compress = (
+			if classof zlibCodec != UndefinedClass do (
+				local z = zlibCodec()
+				data = z.deflate data
+				size = data.count * 4
+				if pos > size do pos = size
+				)
+			),
+
+		/* --------------------------------------------------
+		   internal helpers
+		   -------------------------------------------------- */
+		fn ensureCapacity newBytePos = (
+			if newBytePos > size do (
+				size = newBytePos
+				local neededWords = ((size + 3) / 4) as integer   -- ceil
+				local oldWords    = data.count
+
+				if neededWords > oldWords do (
+					data.count = neededWords
+					for i = (oldWords+1) to neededWords do data[i] = 0
+					)
+				)
+			),
+
+		-- translate absolute byte-offset -> ARR index + within-word byte offset
+		fn wordIndexAndOffset idx &bo = (
+			bo = (mod idx 4)
+			((idx / 4) as integer) + 1        -- 1-based array index
+			),
+
+		-- fetch single unsigned byte at absolute offset (no cursor change)
+		fn getByte idx = (
+			local result = 0
+			if idx < size do (
+				local fullWords = (size / 4) as integer
+				if idx < fullWords*4 then (   -- inside packed dword
+					local wordIdx   = (idx / 4) as integer + 1
+					local byteOfs   = mod idx 4
+					local w         = data[wordIdx]
+					result          = bit.and (bit.shift w (-byteOfs*8)) 0xFF
+					)
+				else (   -- left-over zone
+					local tailIdx = idx - fullWords*4          -- 0 … 2
+					result        = data[fullWords + tailIdx + 1]
 					)
 				)
 			result
 			),
-
-		lenBase  = #(3,4,5,6,7,8,9,10,11,13,15,17,19,23,27,31,35,43,51,59,67,83,99,115,131,163,195,227,258),
-		lenExtra = #(0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,5,0),
-		distBase = #(1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32),
-		distExtra= #(0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12,13,13,14,14),
 		
-		fn _inflate startIdx srcBytes = (
-			local out = #()
-			_bitReset()
-			bytePos = startIdx
-			_initFixedHuffman()
+		-- write single byte at absolute offset (extends blob if needed)
+		fn setByte idx val = (
+			val = bit.and val 0xFF
+			ensureCapacity (idx + 1)
 
-			local finishedStream = false
-			while finishedStream == false do (
-				local bfinal = _bitRead 1
-				local btype  = _bitRead 2
+			local wordIdx = (idx / 4) as integer + 1      -- 1-based slot
+			local byteOfs = mod idx 4                     -- 0,1,2,3
 
-				if btype == 0 then (
-					_bitAlignByte()
-					local len  = _bitRead 16
-					local nlen = _bitRead 16
-					if ((len + nlen) != 0xFFFF) then (
-						format "inflate: LEN/NLEN mismatch – abort\n"
-						finishedStream = true
-						)
-					else (
-						local i
-						for i = 1 to len do (
-							if (bytePos > size) then (
-								format "inflate: truncated stored block\n"
-								finishedStream = true
-								exit
-								)
-							append out data[bytePos]
-							bytePos = bytePos + 1
-							)
-						)
-					)
-				else if btype == 1 then (
-					local endOfBlock = false
-					while endOfBlock == false do (
-						local sym = _huffRead litTable litMax
-						if sym < 256 then (
-							append out sym
-							)
-						else if sym == 256 then (
-							endOfBlock = true
-							)
-						else (
-							local lenIdx  = sym - 257 + 1
-							local length  = lenBase[lenIdx]
-							local extraL  = lenExtra[lenIdx]
-							if extraL > 0 do length = length + (_bitRead extraL)
-
-							local distSym = _huffRead distTable distMax
-							local distIdx = distSym + 1
-							local distance = distBase[distIdx]
-							local dExtra   = distExtra[distIdx]
-							if dExtra > 0 do distance = distance + (_bitRead dExtra)
-
-							if distance < 1 do distance = 1
-							if distance > out.count do distance = out.count
-
-							local j
-							for j = 1 to length do (
-								local val = out[out.count - distance + 1]
-								append out val
-								)
-							)
-						)
-					)
-				else (
-					format "inflate: dynamic Huffman (type 2) not supported – abort\n"
-					finishedStream = true
-					)
-
-				if bfinal == 1 do finishedStream = true
+			local w    = data[wordIdx]
+			local mask = bit.not (bit.shift 0xFF (byteOfs*8))
+			w          = bit.and w mask
+			w          = bit.or  w (bit.shift val (byteOfs*8))
+			data[wordIdx] = w
+			),
+		
+		/* --------------------------------------------------
+		   fundamental stream operations
+		   -------------------------------------------------- */
+		fn tell   = (pos),
+		fn eos    = (pos >= size),
+		fn seek offset seekdir:#seek_set = (
+			case seekdir of (
+				#seek_set: pos = offset
+				#seek_cur: pos += offset
+				#seek_end: pos  = size + offset
 				)
-			out
+			if pos < 0 then pos = 0
+			pos
+			),
+		fn align byte_alignment = (
+			local pad = mod (byte_alignment - (mod pos byte_alignment)) byte_alignment
+			if pad != 0 do pos += pad
+			pad
+			),
+		fn write_padding byte_alignment = (
+			local pad = align byte_alignment
+			for i = 1 to pad do write_ubyte 0
+			pad
+			),
+		
+		fn print_tell lbl = (format "%: \t@ 0x%08X \tdec:%\n" lbl pos pos),
+		
+		/* --------------------------------------------------
+		   elementary reads
+		   -------------------------------------------------- */
+		fn read_ubyte = (
+			if eos() do (format "byteArray: EOF\n"; return 0)
+			local b = getByte pos
+			pos += 1
+			b
+			),
+		
+		fn read_byte = (
+			local b = read_ubyte()
+			if b > 127 then b -= 256
+			b
+			),
+		
+		fn unsigned_to_signed &n nbits = (if bit.get n nbits do n -= (bit.shift 1 nbits)),
+
+		fn read_ushort = (
+			local v = (read_ubyte()) + (bit.shift (read_ubyte()) 8)
+			if swapBytes do v = bit.swapBytes v 1 2
+			v
+			),
+		
+		fn read_short = (
+			local v = read_ushort()
+			unsigned_to_signed &v 16
+			v
 			),
 
-		/* ------------------------------------------------------------------
-		   zlib wrapper that decompresses **into this byteArray**
-		   ------------------------------------------------------------------ */
-		fn zlibDecompressSelf srcOffset:1 compSize:0 =
-		(
-			-- basic header check (CM == 8 / mod 31 == 0 / no preset dic)
-			if (srcOffset + 1 > size) then
-			(
-				format "zlib: header truncated\n"
+		fn read_ulong = (
+			local v = 0                                -- result to be returned
+			/* fast path: 4-byte-aligned, little-endian dword in one go */
+			if not swapBytes and (mod pos 4) == 0 then (
+				local wi = ((pos / 4) as integer) + 1
+				pos     += 4
+				v        = data[wi]
+				if v < 0 do v += 0x100000000          -- coerce to unsigned range
 				)
-			else
-			(
-				local cmf = data[srcOffset]
-				local flg = data[srcOffset+1]
-				if ((cmf band 0x0F) == 8) then
-				(
-					if (((cmf*256 + flg) mod 31) == 0) then
-					(
-						if ((flg band 0x20) == 0) then
-						(
-							local defStart = srcOffset + 2
-							local bytesAvail = size - defStart + 1
-							if (compSize > 0) then bytesAvail = compSize - 2
-							local inflated = _inflate defStart bytesAvail
-							data = inflated
-							size = inflated.count
-							)
-						else
-						(
-							format "zlib: preset dictionary not supported\n"
-							)
-						)
-					else
-					(
-						format "zlib: bad header checksum\n"
-						)
-					)
-				else
-				(
-					format "zlib: unsupported compression method\n"
+			else (
+				/* slow path: assemble dword byte-by-byte */
+				v =  (read_ubyte())                                + \
+					 (bit.shift (read_ubyte())  8)                 + \
+					 (bit.shift (read_ubyte()) 16)                 + \
+					 (bit.shift (read_ubyte()) 24)
+				if swapBytes do v = bit.swapBytes (bit.swapBytes v 1 4) 2 3
+				)
+			v                                            -- implicit return
+			),
+
+		fn read_long = (
+			local v = read_ulong()
+			unsigned_to_signed &v 32
+			v
+			),
+
+		fn read_ulonglong = (
+			local lo = read_ulong()
+			local hi = read_ulong()
+			if swapBytes then (
+				(bit.or (bit.shift lo 32) hi)   -- big-endian source
+				)
+			else (
+				(bit.or (bit.shift hi 32) lo)   -- little-endian source
+				)
+			),
+		fn read_longlong = (
+			local v = read_ulonglong()
+			unsigned_to_signed &v 64
+			v
+			),
+
+		fn read_float = (
+			local i = read_ulong()
+			if swapBytes do i = bit.swapBytes (bit.swapBytes i 1 4) 2 3
+			bit.intAsFloat i
+			),
+		
+		fn read_half = (
+			local h = read_ushort()
+			if swapBytes do h = bit.swapBytes h 1 2
+			local s = bit.shift h -15
+			local p = bit.and (bit.shift h -10) 0x1F
+			local f = bit.and h 0x3FF
+			if p == 0 then ((pow -1 s) * (f/1024.0) * (pow 2 -14))
+			else if p == 31 then (0)
+			else ((pow -1 s) * (1 + f/1024.0) * (pow 2 (e-15)))
+			),
+
+		/* --------------------------------------------------
+		   elementary writes
+		   -------------------------------------------------- */
+		fn write_ubyte v = (
+			ensureCapacity (pos+1)
+			setByte pos (bit.and v 0xFF)
+			pos += 1
+			),
+		fn write_byte v = (
+			write_ubyte (if v < 0 then v + 256 else v)
+			),
+
+		fn write_ushort v = (
+			if swapBytes do v = bit.swapBytes v 1 2
+			write_ubyte (bit.and v 0xFF)
+			write_ubyte (bit.and (bit.shift v -8) 0xFF)
+			),
+		fn write_short v = (
+			if v < 0 then v += 0x10000
+			write_ushort v
+			),
+
+		fn write_ulong v = (
+			if swapBytes do v = bit.swapBytes (bit.swapBytes v 1 4) 2 3
+			for i = 0 to 3 do write_ubyte (bit.and (bit.shift v (8*i)) 0xFF)
+			),
+		fn write_long v = (
+			if v < 0 then v += 0x100000000
+			write_ulong v
+			),
+
+		fn write_ulonglong v = (
+			local hi = bit.shift v -32
+			local lo = bit.and v 0xFFFFFFFF
+			if swapBytes then (
+				write_ulong hi
+				write_ulong lo
+				)
+			else (
+				write_ulong lo
+				write_ulong hi
+				)
+			),
+		fn write_longlong v = (
+			write_ulonglong v
+			),
+
+		fn write_float f = (
+			local i = bit.floatAsInt f
+			if swapBytes do i = bit.swapBytes (bit.swapBytes i 1 4) 2 3
+			write_ulong i
+			),
+
+		/* --------------------------------------------------
+		   strings (C-style or fixed length)
+		   -------------------------------------------------- */
+		fn read_string length:-1 = (
+			local s = ""
+			if length == -1 then (
+				while true do (
+					local c = read_byte()
+					if c == 0 do exit
+					s += bit.IntAsChar (bit.and c 0xFF)
 					)
 				)
+			else (
+				for i = 1 to length do (
+					local c = read_byte()
+					if c == 0 do (
+						seek (length-i) #seek_cur
+						exit
+						)
+					s += bit.IntAsChar (bit.and c 0xFF)
+					)
+				)
+			s
+			),
+
+		fn read_wstring length:0 = (
+			local s = ""
+			if length == 0 then (
+				while true do (
+					local c = read_ushort()
+					if c == 0 do exit
+					s += bit.IntAsChar c
+					)
+				)
+			else (
+				for i = 1 to (length/2) do (
+					local c = read_ushort()
+					if c == 0 do (
+						seek ((length/2-i)*2) #seek_cur
+						exit
+						)
+					s += bit.IntAsChar c
+					)
+				)
+			s
+			),
+
+		fn write_string str length:0 = (
+			str = str as string
+			if length == 0 then (
+				for c = 1 to str.count do (write_ubyte (bit.CharAsInt str[c]))
+				write_byte 0                                     -- NUL-terminate
+				)
+			else (
+				for i = 1 to length do (
+					write_byte (if i <= str.count then bit.CharAsInt str[i] else 0)
+					)
+				)
+			),
+
+		/* --------------------------------------------------
+		   bulk I/O – unchanged from your original version
+		   -------------------------------------------------- */
+		fn readFromStream &f fsize:0 = (
+			local result = false
+			if f != undefined then (
+				/* ------------------------------------------------------------
+				   determine number of bytes to read
+				   ------------------------------------------------------------ */
+				local start = ftell f
+				if fsize == 0 do (
+					fseek f 0 #seek_end
+					fsize = ftell f - start
+					fseek f start #seek_set
+					)
+				
+				/* ------------------------------------------------------------
+				   initialise struct members
+				   ------------------------------------------------------------ */
+				size = fsize
+				data = #()
+				pos  = 0
+				
+				/* ------------------------------------------------------------
+				   pull the bytes into packed 32-bit words (+ leftover)
+				   ------------------------------------------------------------ */
+				local cnt       = (size / 4) as integer
+				local leftover  = (mod size 4)
+
+				if (cnt + leftover) > 0 do (
+					data[cnt + leftover] = 0        -- pre-size array
+
+					for i = 1 to cnt      do data[i]        = readLong f
+					for i = 1 to leftover do data[cnt + i]  = readByte f
+					)
+				result = true
+				)
+			else (
+				format "stream is invalid\n"
+				)
+			result
+			),
+
+
+		fn writeToStream &s = (
+			local fullWords = (size / 4) as integer        -- complete DWORDs
+			local leftover  = (mod size 4)                 -- 0-3 bytes
+
+			/* write every complete 32-bit word */
+			for i = 1 to fullWords do writeLong s data[i]
+
+			/* emit the final partial word byte-by-byte (if any) */
+			if leftover > 0 do (
+				local tail  = data[fullWords+1]
+				for b = 0 to (leftover-1) do
+					writeByte s (bit.and (bit.shift tail (-8*b)) 0xFF)
+				)
+			),
+
+		/* convenience wrappers for entire files --------------------------- */
+		fn read file = (
+			local f = try(fopen file "rbS") catch (undefined)
+			if f == undefined then (format "Error:\tFailed to Load File\n"; return false)
+
+			readFromStream &f fsize:(getFileSize file)
+			fclose f
+			true
+			),
+		fn write file = (
+			if (size < 1) or (data.count < 1) then (format "Error:\tNo data to save\n"; return false)
+
+			local s = try(fopen file "wbS") catch(undefined)
+			if s == undefined then (format "Error:\tFailed to Save File\n"; return false)
+
+			writeToStream &s
+			fclose s
+			true
 			)
 		)
 	
 	struct drAnimLibSkeletonEntry_t ( -- 36 bytes
-		/*float[4]* unk006 = #(0.0, 0.0, 0.0, 0.0), -- quat
+		/*float[4]*/ unk006 = #(0.0, 0.0, 0.0, 0.0), -- quat
 		/*float[3]*/ unk007 = #(0.0, 0.0, 0.0), -- position
 		/*uint32_t*/ unk008 = 0, -- unknown
-		/*uint32_t*/ unk009 = 0, -- unknown
+		/*uint16_t*/ unk009 = 0, -- unknown
+		/*uint16_t*/ unk010 = 0, -- string pos
 		fn read f = (
 			unk006 = #(f.read_float(), f.read_float(), f.read_float(), f.read_float())
 			unk007 = #(f.read_float(), f.read_float(), f.read_float())
 			unk008 = f.read_ulong()
-			unk009 = f.read_ulong()
+			unk009 = f.read_ushort()
+			unk010 = f.read_ushort()
 			),
 		fn write s = (
 			for v in unk006 do (s.write_float(v))
 			for v in unk007 do (s.write_float(v))
-			for v in unk008 do (s.write_float(v))
+			s.write_ulong(unk008)
+			s.write_ushort(unk009)
+			s.write_ushort(unk010)
 			)
 		)
 	
@@ -1210,7 +1142,7 @@ rollout dr3_util "dr3_util" (
 		/*uint32_t*/ unk003 = 0,
 		/*drAnimLibSkeletonEntry_t[]*/ entry = #(),
 		/*int8_t[]*/ unk009 = #(), -- indices?
-		/*string[]*/ unk10 = #(), -- each string is null terminated
+		/*string[]*/ unk10 = #(), -- each string is null terminated, huh sometimes the names are missing wtf
 		fn size = (
 			local nsize = 16 + (unk001 * 37)
 			for i = 1 to unk001 do (nsize += unk10[i].count + 1)
@@ -1450,13 +1382,23 @@ rollout dr3_util "dr3_util" (
 		fn build mscale:39.3701 = (
 			
 			local boneArray = #()
+			local relBones = #{1..(unk001)}
 			for i = 1 to unk001 do (
 				--local d = dummy boxsize:([1.0, 1.0, 1.0] * 0.05)
-				local d = BoneSys.createBone [0.0, 0.0, 0.0] [1.0, 0.0, 0.0] [0.0, 0.0, 1.0]
-				
-				d.name = unk10[i]
-				d.position = [entry[i].unk007[1], entry[i].unk007[2], entry[i].unk007[3]] * -mscale
-				d.rotation = Quat ( -entry[i].unk006[1]) ( -entry[i].unk006[2]) ( -entry[i].unk006[3]) ( entry[i].unk006[4]) 
+				local d = undefined
+				if unk10[i] != "" do (
+					d = getNodeByName unk10[i]
+					)
+				if d != undefined then (
+					relBones[i] = false
+					)
+				else (
+					d = BoneSys.createBone [0.0, 0.0, 0.0] [1.0, 0.0, 0.0] [0.0, 0.0, 1.0]
+					
+					if unk10[i]!= "" do d.name = unk10[i]
+					d.position = [entry[i].unk007[1], entry[i].unk007[2], entry[i].unk007[3]] * -mscale
+					d.rotation = Quat ( -entry[i].unk006[1]) ( -entry[i].unk006[2]) ( -entry[i].unk006[3]) ( entry[i].unk006[4]) 
+					)
 				
 				--print (entry[i].unk009 as string)
 				d.showLinksOnly = d.showLinks = true
@@ -1469,16 +1411,17 @@ rollout dr3_util "dr3_util" (
 					boneArray[i].transform *= rotateXMatrix 90
 					)
 				else (
-					boneArray[i].transform =  inverse boneArray[i].transform * boneArray[unk009[i] + 1].transform
+					if relBones[i] do (
+						boneArray[i].transform =  inverse boneArray[i].transform * boneArray[unk009[i] + 1].transform
+						)
 					boneArray[i].parent = boneArray[unk009[i] + 1]
 					)
-				
 				)
 			fixBoneLengths &boneArray
 			colorBones &boneArray
 			boneArray
 			),
-		fn read f = (
+		fn read f endpos = (
 			
 			unk000 = f.read_ulong()
 			unk001 = f.read_ulong()
@@ -1500,8 +1443,11 @@ rollout dr3_util "dr3_util" (
 					)
 				
 				unk10[unk001] = ""
+				for i = 1 to unk001 do (unk10[i] = "")
 				local spos = f.tell()
 				for i = 1 to unk001 do (
+					if spos + entry[i].unk010 > endpos do continue
+					f.seek(spos + entry[i].unk010)
 					unk10[i] = f.read_string()
 					)
 				
@@ -2871,7 +2817,8 @@ rollout dr3_util "dr3_util" (
 		/*uint32*/ map_index = 0, -- ?
 		/*uint32*/ datatype = 0,
 		/*uint32*/ buffer_index = 0, -- ?
-		/*int64*/ position = 0,
+		/*int32*/ position = 0,
+		/*int32*/ reserved0 = 0,
 		/*uint32*/ channel = 0,
 		fn getType = (
 			case component of (
@@ -2897,7 +2844,8 @@ rollout dr3_util "dr3_util" (
 			map_index = f.read_ulong()
 			datatype = f.read_ulong()
 			buffer_index = f.read_ulong()
-			position = f.read_longlong()
+			position = f.read_ulong()
+			reserved0 = f.read_ulong()
 			channel = f.read_ulong()
 			),
 		fn write s = (
@@ -2905,7 +2853,8 @@ rollout dr3_util "dr3_util" (
 			s.write_ulong(map_index)
 			s.write_ulong(datatype)
 			s.write_ulong(buffer_index)
-			s.write_longlong(position)
+			s.write_ulong(position)
+			s.write_ulong(reserved0)
 			s.write_ulong(channel)
 			)
 		)
@@ -3098,7 +3047,7 @@ rollout dr3_util "dr3_util" (
 					local AnimLibSkeletonIndex = getFileIndex "_ANIMLIB_SKELETON_" filetable filenames str_lookup &visitedFiles
 					if AnimLibSkeletonIndex > 0 do (
 						f.seek(filetable[AnimLibSkeletonIndex].offset)
-						AnimLibSkeleton.read(f)
+						AnimLibSkeleton.read f (filetable[AnimLibSkeletonIndex].offset + filetable[AnimLibSkeletonIndex].uncompressed_size)
 						)
 					
 					-- BoundingBox
@@ -3317,228 +3266,8 @@ rollout dr3_util "dr3_util" (
 				) else (format "No Files?\n")
 			),
 		
-		fn import_old f mscale:39.3701 = (
-			
-			print "Building Mesh......"
-			
-			
-			-- clear scene
-			delete objects
-			
-			-- Build each mesh object
-			local ENUM = dr3MdlCommandBufferEnum_t()
-			
-			local VBHeaders = for o in Combined_VBHeader.entry collect o.unk064
-			
-			local last_vbuf_pos = #(0, 0, 0, 0)
-			
-			local globalVertArray = #()
-			
-			
-			for m = 1 to meshes.count do (
-				
-				--if m > 2 do continue
-				
-				format "\nv---------------- Mesh% ----------------v\n" m
-				format "Name: \t%\n" SceneDescription.entry[m]
-				-- Interpret each command
-				local vertex_starts = #()
-				local index_start = 0
-				local sm = 1
-				
-				local vertArray = #()
-				local faceArray = #()
-				
-				format "\nDescription:\n"
-				format "\tunk040:   \t%\n" meshes[m].desc2.unk040
-				format "\tunk041:   \t%\n" meshes[m].desc2.unk041
-				format "\tunk042:   \t%\n" meshes[m].desc2.unk042
-				format "\tunk043:   \t%\n" meshes[m].desc2.unk043
-				format "\tunk044:   \t%\n" meshes[m].desc2.unk044
-				format "\tunk045:   \t%\n" meshes[m].desc2.unk045
-				format "\tunk046:   \t%\n" meshes[m].desc2.unk046
-				format "\tunk047:   \t%\n" meshes[m].desc2.unk047
-				format "\tunk050:   \t0x%\n" (bit.intAsHex meshes[m].desc2.unk050)
-				format "\tunk051:   \t0x%\n" (bit.intAsHex meshes[m].desc2.unk051)
-				format "\tunk052:   \t% ? reset flag?\n" meshes[m].desc2.unk052
-				
-				
-				for r in meshes[m].MaskRenderStrip.entry do (
-					
-					format "\nMaskRenderStrip:\n"
-					format "\tunk020:   \t%\n"   r.unk020
-					format "\tunk021:   \t%\n"   r.unk021
-					format "\tunk022:   \t% ? Material index\n"   r.unk022
-					format "\tunk023:   \t0x%\n"   (bit.intAsHex r.unk023)
-					format "\tunk024:   \t0x%\n"   (bit.intAsHex r.unk024)
-					format "\tunk025:   \t%\n"   r.unk025
-					format "\tunk026:   \t%\n"   r.unk026
-					
-					for c = r.unk027_index to r.unk028_count do (
-						local cmd = meshes[m].CommandBuffer.entry[c]
-						
-						case cmd.cmd[1] of (
-							(ENUM.CMD_RET): ()
-							(ENUM.SET_DRAW_STATE): (
-								--if cmd.cmd[4] != 0 do last_vbuf_pos = #(0, 0, 0, 0)
-								)
-							(ENUM.SET_VERTEX_DECL): ()
-							(ENUM.SET_OFFSET_VERTEX_BUFFER): (
-								append vertex_starts #(
-									cmd.cmd[2], -- VertDesc Index?
-									cmd.cmd[3], -- Vertex Stride
-									cmd.cmd[4], -- Vertex Flag
-									cmd.data[1]   -- Vertex Start Position
-									)
-								)
-							
-							(ENUM.SET_OFFSET_INDEX_BUFFER): (
-								index_start = cmd.data[1]
-								)
-							
-							(ENUM.CMD_DRAW_INDEXED): (
-								
-								
-								local prim_type = cmd.cmd[2]
-								local vertex_count = cmd.data[3]
-								local face_count = cmd.data[5]
-								
-								format "_______________________________\n"
-								format "SubMesh%:\n" sm
-								
-								format "\tprim_type:    \t%\n"    prim_type
-								format "\tvertex_count: \t%\n" vertex_count
-								format "\tface_count:   \t%\n"   face_count
-								
-								
-								
-								-- Retrieve Vertex Buffer Info
-								local VertDesc_Index = vertex_starts[sm][1] + 1
-								local Vertex_Stride  = vertex_starts[sm][2]
-								local Vertex_Flag    = vertex_starts[sm][3]
-								local vpos   = vertex_starts[sm][4]
-								local VBuf_Index     = findItem VBHeaders Vertex_Stride
-								local VBuf_Offset    = Combined_Vertices[VBuf_Index].offset -- Base Offset
-								
-								format "\tVertDesc_Index: \t%\n"   VertDesc_Index
-								format "\tVertex_Stride:  \t%\n"   Vertex_Stride
-								format "\tVertex_Flag:    \t0x%\n" (bit.IntAsHex Vertex_Flag)
-								format "\tvpos:   \t%\n"   vpos
-								format "\tVBuf_Index:     \t%\n"   VBuf_Index
-								format "\tVBuf_Offset:    \t%\n"   VBuf_Offset
-								format "\tLastVBufPos:    \t%\n"   last_vbuf_pos[VBuf_Index]
-								format "\tIBuf_Offset:    \t%\n"   (Combined_Indices[1].offset + (index_start * 2))
-								
-								-- Construct Vertices
-								for v = 1 to vertex_count do (
-									
-									-- Loop through each vertex component
-									for fvf in meshes[m].D3DVertexDesc[VertDesc_Index].entry do (
-										
-										-- Jump to vertex address
-										f.seek(VBuf_Offset + last_vbuf_pos[VBuf_Index] + ((vpos + (v - 1)) * Vertex_Stride) + fvf.position)
-										
-										
-										local val = #(0.0, 0.0, 0.0, 0.0)
-										case fvf.datatype of (
-											0x06: ( -- 12 Bytes
-												val = #(f.read_float(), f.read_float(), f.read_float(), 1.0)
-												)
-											0x0D: ( -- 8 Bytes
-												val = #(f.read_float(), f.read_float(), 0.0, 0.0)
-												)
-											0x10: ( -- 8 Bytes
-												val = #(f.read_float(), f.read_float(), 0.0, 0.0)
-												)
-											0x1C: ( -- 8 Bytes
-												val = #(f.read_short() / 32767.0, f.read_short() / 32767.0, 0.0, 0.0)
-												)
-											0x1E: ( -- 4 Bytes
-												val = #(f.read_byte() / 127.0, f.read_byte() / 127.0, f.read_byte() / 127.0, f.read_byte() / 127.0)
-												)
-											0x25: ( -- 4 Bytes
-												val = #(f.read_byte() / 127.0, f.read_byte() / 127.0, f.read_byte() / 127.0, f.read_byte() / 127.0)
-												)
-											default: (
-												print ("UNKNOWN VERTEX TYPE: \t0x" + (bit.IntAsHex fvf.datatype) + "\n")
-												)
-											)
-										case fvf.component of (
-											0x00: ( -- position
-												append vertArray ([val[1], -val[3], val[2]] * mscale)
-												)
-											0x01: ( -- weight
-												-- Add weight handling if needed
-												)
-											0x02: ( -- boneid
-												-- Add boneid handling if needed
-												)
-											0x03: ( -- normal
-												-- Add normal handling if needed
-												)
-											0x04: ( -- binormal
-												-- Add binormal handling if needed
-												)
-											0x05: ( -- texture
-												-- Add texture handling if needed
-												)
-											0x06: ( -- tangent
-												-- Add tangent handling if needed
-												)
-											0x0A: ( -- color?
-												-- Add tangent handling if needed
-												)
-											default: (
-												print ("UNKNOWN COMPONENT TYPE: \t0x" + (bit.IntAsHex fvf.component) + "\n")
-												)
-											)
-										)
-									
-									)
-								
-								local max_index = 0
-								f.seek(Combined_Indices[1].offset + (index_start * 2))
-								
-								for i = 1 to (face_count / 3) as integer do (
-									
-									local face = [f.read_ushort(), f.read_ushort(), f.read_ushort()] + 1
-									
-									for v = 1 to 3 do (
-										if face[v] > max_index do (max_index = face[v] as integer)
-										)
-									
-									--append faceArray face
-									)
-								format "\tMAX_Index:     \t%\n"   max_index
-								
-								local msh = mesh \
-									vertices:vertArray \
-									faces:faceArray \
-									name:((m as string) + " " + SceneDescription.entry[m])
-								
-								
-								-- patch to get those shoes working... wtfs
-								
-								last_vbuf_pos[VBuf_Index] += vertex_count * Vertex_Stride
-								print (last_vbuf_pos as string)
-								
-								
-								sm += 1
-								)
-							)
-						
-						
-						
-						)
-					
 
-
-
-					)
-				)
-			),
-		
-		fn import f mscale:39.3701 = (
+		fn import2_original f mscale:39.3701 = (
 			
 
 			-- clear scene
@@ -3748,15 +3477,298 @@ rollout dr3_util "dr3_util" (
 
 					)
 				)
+			),
+
+
+		fn import f mscale:39.3701 impWeights:false impNormals:false = (
+			
+			/*
+				parts optimized by chatGPT
+			*/
+			
+			impWeights = chk_weights.checked
+			impNormals = chk_normals.checked
+			if chk_clear.checked do (delete objects)
+			
+			
+			--delete objects
+			
+			setCommandPanelTaskMode #modify
+			
+			local boneArray = AnimLibSkeleton.build()
+			
+			local ENUM      = dr3MdlCommandBufferEnum_t()
+			local idxBase   = Combined_Indices[1].offset              -- index buffer start
+			local VBHeaders = for o in Combined_VBHeader.entry collect o.unk064  -- stride->vbuf lookup
+			
+			
+			for m = 1 to meshes.count do (
+				local vertex_starts = #()
+				local index_start   = 0
+				local sm            = 1
+				
+				for r in meshes[m].MaskRenderStrip.entry do (
+					for c = r.unk027_index to r.unk027_index + r.unk028_count - 1 do (
+						local cmd = meshes[m].CommandBuffer.entry[c]
+						
+						case cmd.cmd[1] of (
+							
+							(ENUM.SET_OFFSET_VERTEX_BUFFER): (
+								append vertex_starts #(
+									cmd.cmd[2],  -- vertex declaration index
+									cmd.cmd[3],  -- stride
+									cmd.cmd[4],  -- flag
+									cmd.data[1]  -- vpos offset
+									)
+								)
+							
+							(ENUM.SET_OFFSET_INDEX_BUFFER): (
+								index_start = cmd.data[1]
+								)
+							
+							(ENUM.CMD_DRAW_INDEXED): (
+								
+								if vertex_starts.count < sm do (
+									format "warning: vertex start % not found\n" sm
+									sm += 1
+									continue
+									)
+								
+								local vinfo         = vertex_starts[sm]
+								local vdescIndex    = vinfo[1] + 1
+								local stride        = vinfo[2]
+								local vposOffset    = vinfo[4]
+								local vbufIdx       = findItem VBHeaders stride
+								
+								if vbufIdx == 0 do (
+									format "error: stride % not found in VBHeaders\n" stride
+									sm += 1
+									continue
+									)
+								
+								local vbufBase      = Combined_Vertices[vbufIdx].offset
+								local descList      = meshes[m].D3DVertexDesc[vdescIndex].entry
+								
+								local faceCnt       = cmd.data[5]
+								local triCnt        = (faceCnt/3) as integer
+								
+								local vertArray = #()
+								local normArray = #()
+								local tvertArray = #(#(), #(), #(), #(), #(), #(), #(), #(), #(), #())
+								local faceArray = #()
+								local weightArray = #()
+								local boneidArray = #()
+								local remap     = #()
+								
+								for t = 1 to triCnt do (
+									f.seek (idxBase + ((index_start + (t-1)*3) * 2))
+									local ia = f.read_ushort() + vposOffset
+									local ib = f.read_ushort() + vposOffset
+									local ic = f.read_ushort() + vposOffset
+									
+									local tri = #()
+									for k = 1 to 3 do (
+										
+										local orig = if (k==1) then ia else (if (k==2) then ib else ic)
+										local key  = orig + 1
+										if remap.count < key do remap.count = key
+										
+										if remap[key] == undefined then (
+											
+											local pos = [0,0,0]
+											for fvf in descList do (
+												
+												f.seek (vbufBase + orig*stride + fvf.position)
+												
+												local tmp = #(0.0, 0.0, 0.0, 0.0)
+												case fvf.datatype of (
+													0x06: (tmp = #(f.read_float(), f.read_float(), f.read_float(), 1.0))
+													0x10: (tmp = #(f.read_float(), f.read_float(), 0.0, 1.0))
+													0x1C: (tmp = #((f.read_byte()/255.0), (f.read_byte()/255.0), (f.read_byte()/255.0), (f.read_byte()/255.0)))
+													--0x0D: (tmp = #(f.read_half(), f.read_half(), f.read_half(), f.read_half()))
+													0x0D: (tmp = #(f.read_short() / 32767.0, f.read_short() / 32767.0, f.read_short() / 32767.0, f.read_short() / 32767.0))
+													0x1E: (tmp = #(f.read_ubyte(), f.read_ubyte(), f.read_ubyte(), f.read_ubyte()))
+													0x25: (tmp = #(f.read_short() / 32767.0, f.read_short() / 32767.0, 0.0, 1.0))
+													default: (format "UNKNOWN VERTEX DATATYPE: 0x%X\n" fvf.datatype)
+													)
+												
+												
+												case fvf.component of (
+													0x00: ( -- position
+														append vertArray ([tmp[1], -tmp[3], tmp[2]] * mscale)
+														remap[key] = vertArray.count
+														)
+													0x01: ( -- weight
+														append weightArray #(tmp[1] / 255.0, tmp[2] / 255.0, tmp[3] / 255.0, tmp[4] / 255.0)
+														)
+													0x02: ( -- boneid
+														append boneidArray tmp
+														)
+													0x03: ( -- normal
+														append normArray [tmp[1], -tmp[3], tmp[2]]
+														)
+													0x04: ( -- binormal
+														-- Add binormal handling if needed
+														)
+													0x05: ( -- texture
+														
+														append tvertArray[fvf.map_index + 1] [tmp[1], 1.0 - tmp[2], 0.0]
+														)
+													0x06: ( -- tangent
+														-- Add tangent handling if needed
+														)
+													0x0A: ( -- color?
+														-- Add tangent handling if needed
+														)
+													default: (
+														print ("UNKNOWN COMPONENT TYPE: \t0x" + (bit.IntAsHex fvf.component) + "\n")
+														)
+													)
+												)
+											)
+										append tri remap[key]
+										)
+									append faceArray [tri[1], tri[2], tri[3]]
+									) -- tri loop
+								
+								if (vertArray.count>0 and faceArray.count>0) do (
+									local msh = mesh \
+										vertices:vertArray \
+										faces:faceArray \
+										name:((sm as string)+" "+SceneDescription.entry[m])
+										
+									
+									msh.backfacecull = on
+									msh.displayByLayer = false
+									msh.wirecolor = random (color 0 0 0) (color 255 255 255)
+									
+									--msh.material = MultiMaterial numsubs:num_submesh
+									--for i = 1 to num_submesh do (
+									--	msh.material[i] = StandardMaterial()
+									--	msh.material[i].diffuse = random white black
+									--	msh.material[i].glossiness = random 10 25
+									--	msh.material[i].specularLevel = random 20 80
+									--	)
+									
+									for i = 1 to msh.numfaces do setFaceSmoothGroup msh i 1
+									
+									local uv_count = 0
+									for t in tvertArray where t.count > 0 do (
+										uv_count += 1
+										)
+									
+									if uv_count > 0 do (
+										setNumTVerts msh tvertArray[1].count 
+										buildTVFaces msh
+										for i = 1 to faceArray.count do setTVFace msh i faceArray[i]
+										for i = 1 to tvertArray[1].count do setTVert msh i tvertArray[1][i]
+										
+										if uv_count > 1 do (
+											meshop.setNumMaps msh (uv_count + 1) keep:true
+											for t = 2 to uv_count do (
+												meshop.setNumMapVerts msh t tvertArray[t].count keep:true
+												for i = 1 to tvertArray[t].count do meshOp.setMapVert msh t i tvertArray[t][i]
+												)
+											)
+										)
+									
+									
+									if impNormals do (
+										
+										local normMod = Edit_Normals()
+										addmodifier msh normMod ui:off
+										select msh
+										modPanel.setCurrentObject normMod
+										normMod.selectBy = 1
+										normMod.displayLength = 0.00635 * mscale
+										normMod.MakeExplicit selection:#{1..(normArray.count)}
+										local normID = #{}
+										
+										--apply normals
+										for i = 1 to normArray.count do (
+											normID = #{} --free normID
+											normMod.ConvertVertexSelection #{i} &normID
+											for ii in normID do (
+												normMod.SetNormal ii (normalize normArray[i])
+												)
+											)
+										
+										--collapseStack msh
+										subobjectLevel = 0
+										)
+									
+									if impWeights and boneArray.count > 0 do (
+										
+										-- apply a skin modifier
+										local skinMod = skin()
+										addModifier msh skinMod ui:off
+										select msh
+										modPanel.setCurrentObject skinMod
+										
+										-- assign bones to skin modifier, from the weight pallete
+										for i = 1 to boneArray.count do (
+											skinOps.addbone skinMod boneArray[i]  (
+												if i == boneArray.count then 1 else 0
+												)
+											)
+										
+										
+										-- get names of bones in skin list
+										local bneTmp = #()
+										bneTmp[boneArray.count] = ""
+										for i = 1 to boneArray.count do (
+											bneTmp[i] = skinOps.GetBoneName skinMod i 0
+											)
+										
+										-- create a bonemap
+										local boneMap = #()
+										boneMap[boneArray.count] = 1
+										for i = 1 to boneArray.count do (
+											boneMap[i] = 1 -- default assignment to first bone in skin list
+											local bone_index = findItem bneTmp boneArray[i].name
+											if bone_index > 0 do (boneMap[i] = bone_index)
+											)
+										
+										
+										-- apply weights to skin modifier
+										modPanel.setCurrentObject skinMod
+										for i = 1 to weightArray.count do (
+											local numBones = 4
+											local bi = #()
+											local bw = #()
+											
+											for ii = 1 to numBones do (
+												
+												local weight = weightArray[i][ii]
+												
+												
+												
+												if weight > 0.00001 do (
+													local bone_index = boneidArray[i][ii] + meshes[m].desc2.unk046 + 1
+													bone_index = boneMap[bone_index]
+													
+													append bi bone_index
+													append bw weight
+													)
+												)
+											skinOps.ReplaceVertexWeights skinMod i bi bw
+											
+											)
+										
+										--if skinOps.isWeightToolOpen skinMod == 0 do (
+										--	skinOps.WeightTool skinMod
+										--	)
+										--skinMod.filter_vertices = on
+										)
+									
+									)
+								sm += 1
+								) -- CMD_DRAW_INDEXED
+							) -- case
+						) -- command loop
+					) -- mask-strip loop
+				) -- mesh loop
 			)
-
-
-
-
-
-
-
-		
 		)
 	
 	struct dr3BctMip_t ( -- 16 bytes
@@ -4102,19 +4114,53 @@ rollout dr3_util "dr3_util" (
 		local dr3asset = dr3Package_t()
 		dr3asset.open(file)
 		)
+	
+	on btn_import pressed do (
+		local file =  GetOpenFileName caption:"Open big model file" types: "big (*.big)|*.big;*.mdl|All files (*.*)|*.*|"
+		if file != undefined and file != "" do (
+			local f = bytestream()
+			if f.open(file) do (
+				local big = dr3Big_t()
+				with undo off (
+					with redraw off (
+						big.read f
+						)
+					)
+				)
+			)
+		)
+	on btn_unpack pressed do (
+		local file =  GetOpenFileName caption:"Open big model file" types: "big (*.big)|*.big;*.mdl|All files (*.*)|*.*|"
+		if file != undefined and file != "" do (
+			local f = bytestream()
+			if f.open(file) do (
+				local big = dr3Big_t()
+				local fname = getFilenameFile file
+				local fpath = getFilenamePath file
+				
+				with undo off (
+					with redraw off (
+						big.read f dumpPath:(fpath + fname + "\\")
+						)
+					)
+				)
+			)
+		)
 	)
---CreateDialog dr3_util
+CreateDialog dr3_util
+/*
 dr3_util.read(
 	"G:\\SteamLibrary\\steamapps\\common\\deadrising3\\_DUMP\\boss_01.big"
 -- 	"G:\\SteamLibrary\\steamapps\\common\\deadrising3\\_DUMP\\cast_04.big"
--- 	"G:\\SteamLibrary\\steamapps\\common\\deadrising3\\_DUMP\\svr_30.big"
+	"G:\\SteamLibrary\\steamapps\\common\\deadrising3\\_DUMP\\svr_30.big"
 -- 	"G:\\SteamLibrary\\steamapps\\common\\deadrising3\\_DUMP\\cine_zombee.big"
 -- 	"G:\\SteamLibrary\\steamapps\\common\\deadrising3\\_DUMP\\boss_02 (2).big"
 -- 	"G:\\SteamLibrary\\steamapps\\common\\deadrising3\\_DUMP\\grapes.big"
-	"G:\\SteamLibrary\\steamapps\\common\\deadrising3\\_DUMP\\BIG\\legs_fembusiness_m0.big"
-	"G:\\SteamLibrary\\steamapps\\common\\deadrising3\\_DUMP\\BIG\\feeto_hawaiian_m0.big"
-	"G:\\SteamLibrary\\steamapps\\common\\deadrising3\\_DUMP\\BIG\\dlc_sonya_paddock.big"
+-- 	"G:\\SteamLibrary\\steamapps\\common\\deadrising3\\_DUMP\\BIG\\legs_fembusiness_m0.big"
+-- 	"G:\\SteamLibrary\\steamapps\\common\\deadrising3\\_DUMP\\BIG\\feeto_hawaiian_m0.big"
+-- 	"G:\\SteamLibrary\\steamapps\\common\\deadrising3\\_DUMP\\BIG\\dlc_sonya_paddock.big"
 -- 	"G:\\SteamLibrary\\steamapps\\common\\deadrising3\\_DUMP\\BIG\\f_trucker_m1_0_ch_00.big"
 -- 	"G:\\SteamLibrary\\steamapps\\common\\deadrising3\\_DUMP\\BIG\\Z001_Tree70Shape.big"
-	getOpenFileName()
+-- 	getOpenFileName()
 	)
+*/
